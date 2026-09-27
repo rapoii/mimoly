@@ -126,7 +126,7 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                 history.append(f"[Assistant]: {content}")
         elif role == "tool":
             tool_name = m.get("name", "tool")
-            snippet = content[:300] + ("..." if len(content) > 300 else "")
+            snippet = content[:2500] + ("..." if len(content) > 2500 else "")
             history.append(f"[Hasil {tool_name}]: {snippet}")
 
     main_goal = user_goals[-1] if user_goals else ""
@@ -163,7 +163,12 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
 
     if main_goal:
         if messages and messages[-1].get("role") == "tool":
-            prompt_lines.append(f"Tugas awal: {main_goal}\nStatus: Hasil eksekusi tool sudah didapatkan di riwayat di atas. Analisis dan berikan jawaban akhir kepada user sekarang (jangan ulangi pemanggilan tool yang sama).")
+            prompt_lines.append(
+                f"Tugas utama user: {main_goal}\n"
+                f"Status terkini: Hasil eksekusi tool terbaru ada di riwayat di atas.\n"
+                f"- Jika tugas utama sudah terjawab/selesai secara lengkap, berikan jawaban akhir yang jelas dan informatif kepada user sekarang.\n"
+                f"- Jika tugas masih membutuhkan langkah berikutnya atau tool lanjutan (misal melihat isi skill, memanggil MCP, membaca file, delegasi task), panggil tool berikutnya sekarang."
+            )
         else:
             prompt_lines.append(f"Tugas sekarang:\n{main_goal}")
 
@@ -176,24 +181,34 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
 
     # 1. Cek explicit JSON tool_calls
     # Pola 1A: <tool_call> ... </tool_call>
-    m_tc = re.findall(r"<tool_call>\s*(\{[\s\S]*?\})\s*</tool_call>", reply_text)
-    if not m_tc:
-        m_tc = re.findall(r"<tool_call>\s*(\{[\s\S]*?\})", reply_text)
+    m_tc = re.findall(r"<tool_call>([\s\S]*?)(?:</tool_call>|$)", reply_text)
     if m_tc:
         tc_list = []
-        for tc_str in m_tc:
-            try:
-                tc_obj = json.loads(tc_str, strict=False)
-                if "name" in tc_obj and ("arguments" in tc_obj or "parameters" in tc_obj):
-                    args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
-                    name = tc_obj["name"]
-                    if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                        name = "terminal"
-                    tc_list.append({"name": name, "arguments": args})
-            except Exception:
-                pass
+        for block in m_tc:
+            clean_block = block.replace("</think>", "").strip()
+            # Match json object inside
+            m_json_obj = re.search(r"(\{[\s\S]*\})", clean_block)
+            if m_json_obj:
+                try:
+                    tc_obj = json.loads(m_json_obj.group(1), strict=False)
+                    if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
+                        for item in tc_obj["tool_calls"]:
+                            name = item.get("name")
+                            args = item.get("arguments") or item.get("parameters") or {}
+                            if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+                                name = "terminal"
+                            tc_list.append({"name": name, "arguments": args})
+                    elif "name" in tc_obj:
+                        name = tc_obj["name"]
+                        args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
+                        if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+                            name = "terminal"
+                        tc_list.append({"name": name, "arguments": args})
+                except Exception:
+                    pass
         if tc_list:
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
+            clean = clean.replace("</think>", "").strip()
             return tc_list, clean
 
     m_json = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", reply_text)
@@ -210,15 +225,17 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
         except Exception:
             pass
 
-    m2 = re.search(r"(\{\s*\"tool_calls\"[\s\S]*?\n\s*\}\s*\]\s*\})", reply_text)
-    if not m2:
-        m2 = re.search(r"(\{\s*\"tool_calls\"[\s\S]*?\})", reply_text)
+    m2 = re.search(r"\{\s*\"tool_calls\"\s*:\s*(\[[\s\S]*?\])\s*\}", reply_text)
     if m2:
         try:
-            d = json.loads(m2.group(1), strict=False)
-            if "tool_calls" in d and isinstance(d["tool_calls"], list):
+            arr = json.loads(m2.group(1), strict=False)
+            calls = []
+            for item in arr:
+                if "name" in item:
+                    calls.append({"name": item.get("name"), "arguments": item.get("arguments") or item.get("parameters") or {}})
+            if calls:
                 clean = reply_text.replace(m2.group(0), "").strip()
-                return d["tool_calls"], clean
+                return calls, clean
         except Exception:
             pass
 
