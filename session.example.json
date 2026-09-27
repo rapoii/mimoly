@@ -1,0 +1,20 @@
+[
+  {
+    "name": "userId",
+    "value": "YOUR_USER_ID",
+    "domain": ".xiaomimimo.com",
+    "path": "/"
+  },
+  {
+    "name": "xiaomichatbot_serviceToken",
+    "value": "YOUR_SERVICE_TOKEN",
+    "domain": ".xiaomimimo.com",
+    "path": "/"
+  },
+  {
+    "name": "xiaomichatbot_ph",
+    "value": "YOUR_XIAOMICHATBOT_PH",
+    "domain": ".xiaomimimo.com",
+    "path": "/"
+  }
+]

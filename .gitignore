@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# Mimoly runtime
+session.json
+last_request.json
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
