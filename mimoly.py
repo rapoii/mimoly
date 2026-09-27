@@ -37,6 +37,55 @@ DEFAULT_PORT = 8080
 CHAT_API_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/chat"
 CHAT_CONV_SAVE_URL = "https://aistudio.xiaomimimo.com/open-apis/chat/conversation/save"
 
+MODEL_CATALOG = [
+    {
+        "id": "mimo-v2.6-pro",
+        "name": "MiMo-V2.6-Pro (Flagship Reasoning)",
+        "upstream_model": "mimo-v2.6-pro",
+        "description": "Xiaomi flagship reasoning model with deep thinking and high intelligence."
+    },
+    {
+        "id": "mimo-v2.6-flash",
+        "name": "MiMo-V2.6-Flash (High-Speed)",
+        "upstream_model": "mimo-v2.6-flash",
+        "description": "Fast and responsive Xiaomi model for quick tasks and code execution."
+    },
+    {
+        "id": "mimo-v2.5-pro",
+        "name": "MiMo-V2.5-Pro (Alias)",
+        "upstream_model": "mimo-v2.6-pro",
+        "description": "Legacy alias routed to mimo-v2.6-pro."
+    },
+    {
+        "id": "mimo-v2.5",
+        "name": "MiMo-V2.5 (Alias)",
+        "upstream_model": "mimo-v2.6-flash",
+        "description": "Legacy alias routed to mimo-v2.6-flash."
+    },
+    {
+        "id": "mimo",
+        "name": "MiMo Default",
+        "upstream_model": "mimo-v2.6-pro",
+        "description": "Default alias routed to mimo-v2.6-pro."
+    },
+]
+
+MODEL_ALIASES = {
+    # Pro / Flagship
+    "mimo-v2.6-pro": "mimo-v2.6-pro",
+    "mimo-v2.5-pro": "mimo-v2.6-pro",
+    "mimo-v2-pro": "mimo-v2.6-pro",
+    "mimo-v2.1-pro": "mimo-v2.6-pro",
+    "mimo-pro": "mimo-v2.6-pro",
+    "mimo": "mimo-v2.6-pro",
+    # Flash / Fast
+    "mimo-v2.6-flash": "mimo-v2.6-flash",
+    "mimo-v2.5": "mimo-v2.6-flash",
+    "mimo-v2-flash": "mimo-v2.6-flash",
+    "mimo-v2.1-omni": "mimo-v2.6-flash",
+    "mimo-flash": "mimo-v2.6-flash",
+}
+
 app = FastAPI(title="Mimoly Web2API Proxy", description="100% Pure HTTP OpenAI-Compatible Proxy for Xiaomi MiMo")
 
 # Allow CORS for web frontends (Cherry Studio, NextChat, OpenRouter, 9router, etc.)
@@ -324,40 +373,53 @@ async def health():
 @app.get("/api/v1/models")
 async def list_models():
     now = int(time.time())
-    model_list = [
-        {"id": "mimo-v2.5-pro", "object": "model", "created": now, "owned_by": "xiaomi"},
-        {"id": "custom/mimo-v2.5-pro", "object": "model", "created": now, "owned_by": "xiaomi"},
-        {"id": "mimo-v2.5", "object": "model", "created": now, "owned_by": "xiaomi"},
-        {"id": "mimo", "object": "model", "created": now, "owned_by": "xiaomi"},
-        {"id": "claude-fable-5", "object": "model", "created": now, "owned_by": "xiaomi"},
-    ]
+    model_list = []
+    for m in MODEL_CATALOG:
+        model_list.append({
+            "id": m["id"],
+            "object": "model",
+            "created": now,
+            "owned_by": "xiaomi",
+            "name": m["name"],
+            "description": m["description"]
+        })
+    # Also add custom/ prefix versions for flexible routing
+    for m in MODEL_CATALOG:
+        model_list.append({
+            "id": f"custom/{m['id']}",
+            "object": "model",
+            "created": now,
+            "owned_by": "xiaomi"
+        })
     return {"object": "list", "data": model_list}
 
 
 @app.get("/v1/models/{model_id:path}")
 async def get_model(model_id: str):
+    clean_id = model_id.split("/")[-1].lower().strip()
+    target_upstream = MODEL_ALIASES.get(clean_id, "mimo-v2.6-pro")
     return {
         "id": model_id,
         "object": "model",
         "created": int(time.time()),
-        "owned_by": "xiaomi"
+        "owned_by": "xiaomi",
+        "upstream_model": target_upstream
     }
 
 
 @app.get("/api/tags")
 async def ollama_tags():
-    return {
-        "models": [
-            {
-                "name": "mimo-v2.5-pro",
-                "model": "mimo-v2.5-pro",
-                "modified_at": "2026-09-28T00:00:00Z",
-                "size": 7000000000,
-                "digest": "sha256:mimoly",
-                "details": {"format": "gguf", "family": "mimo"}
-            }
-        ]
-    }
+    models = []
+    for m in MODEL_CATALOG:
+        models.append({
+            "name": m["id"],
+            "model": m["id"],
+            "modified_at": "2026-09-28T00:00:00Z",
+            "size": 7000000000,
+            "digest": f"sha256:{m['id']}",
+            "details": {"format": "gguf", "family": "mimo"}
+        })
+    return {"models": models}
 
 
 @app.get("/version")
@@ -389,9 +451,31 @@ async def chat_completions(request: Request):
 
     stream = body.get("stream", False)
     tools = body.get("tools")
-    model = body.get("model", "mimo-v2.5-pro")
+    model = body.get("model", "mimo-v2.6-pro")
 
-    print(f"[mimoly] Incoming request: model={model}, stream={stream}, messages={len(messages)}, tools={len(tools) if tools else 0}")
+    clean_model_id = model.split("/")[-1].lower().strip()
+    target_upstream_model = MODEL_ALIASES.get(clean_model_id, "mimo-v2.6-pro")
+
+    # Reasoning effort & Thinking configuration
+    reasoning_effort = str(body.get("reasoning_effort", "")).lower()
+    enable_thinking_param = body.get("enable_thinking")
+    thinking_param = body.get("thinking")
+
+    thinking_enabled = True
+    if reasoning_effort in ["none", "off", "false", "0"]:
+        thinking_enabled = False
+    elif enable_thinking_param is False:
+        thinking_enabled = False
+    elif isinstance(thinking_param, dict) and thinking_param.get("type") == "disabled":
+        thinking_enabled = False
+
+    is_rata_kanan = (
+        reasoning_effort in ["xhigh", "high", "max"] or
+        body.get("rata_kanan", False) or
+        os.getenv("MIMOLY_REASONING_EFFORT", "").lower() in ["max", "xhigh", "high"]
+    )
+
+    print(f"[mimoly] Incoming request: model={model} -> {target_upstream_model}, stream={stream}, messages={len(messages)}, tools={len(tools) if tools else 0}, thinking={thinking_enabled}, rata_kanan={is_rata_kanan}")
     try:
         with open("last_request.json", "w", encoding="utf-8") as f_req:
             json.dump(body, f_req, indent=2, ensure_ascii=False)
@@ -415,6 +499,16 @@ async def chat_completions(request: Request):
                 user_prompt = c if isinstance(c, str) else str(c)
                 break
 
+    if is_rata_kanan:
+        amplifier = (
+            "\n\n[SISTEM PENALARAN: EFFORT TERTINGGI / RATA KANAN]\n"
+            "Instruksi berpikir: Gunakan kapasitas reasoning semaksimal mungkin. "
+            "Lakukan penalaran mendalam, teliti, eksploratif, dan komprehensif secara bertahap. "
+            "Uraikan proses berpikir langkah demi langkah secara mendalam, uji setiap hipotesis, "
+            "evaluasi edge-cases dan kemungkinan kesalahan sebelum menyimpulkan jawaban akhir atau memanggil tools."
+        )
+        user_prompt += amplifier
+
     ph_param = cookies.get("xiaomichatbot_ph", "")
     upstream_url = f"{CHAT_API_URL}?xiaomichatbot_ph={urllib.parse.quote(ph_param)}"
 
@@ -434,7 +528,7 @@ async def chat_completions(request: Request):
                 save_url,
                 headers=headers,
                 cookies=cookies,
-                json={"conversationId": conv_id, "type": "chat", "title": "Mimoly Session"}
+                json={"conversationId": conv_id, "type": "chat", "title": f"Mimoly {target_upstream_model}"}
             )
     except Exception as e:
         print(f"[mimoly] Warning: failed to save conversation: {e}")
@@ -446,9 +540,9 @@ async def chat_completions(request: Request):
         "query": user_prompt,
         "isEditedQuery": False,
         "modelConfig": {
-            "enableThinking": True,
+            "enableThinking": thinking_enabled,
             "webSearchStatus": "disabled",
-            "model": "mimo-v2.5-pro",
+            "model": target_upstream_model,
         },
         "multiMedias": []
     }
@@ -476,6 +570,7 @@ async def chat_completions(request: Request):
 
             accumulated_chunks = []
             usage_data = None
+            in_thinking = False
 
             try:
                 async with httpx.AsyncClient(timeout=180.0) as client:
@@ -539,27 +634,85 @@ async def chat_completions(request: Request):
                             if not content_piece:
                                 continue
 
-                            clean_piece = content_piece.replace("<think>\x00", "").replace("<think>", "").replace("</think>", "").replace("\x00", "")
+                            if "<think>" in content_piece:
+                                in_thinking = True
+                                content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
+
+                            if "</think>" in content_piece:
+                                parts = content_piece.split("</think>", 1)
+                                think_part = parts[0].replace("\x00", "")
+                                answer_part = parts[1].replace("\x00", "")
+
+                                if think_part and thinking_enabled:
+                                    t_chunk = {
+                                        "id": completion_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created_time,
+                                        "model": model,
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {"role": "assistant", "reasoning_content": think_part},
+                                            "finish_reason": None
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(t_chunk)}\n\n"
+
+                                in_thinking = False
+
+                                if answer_part:
+                                    if tools:
+                                        accumulated_chunks.append(answer_part)
+                                    else:
+                                        chunk = {
+                                            "id": completion_id,
+                                            "object": "chat.completion.chunk",
+                                            "created": created_time,
+                                            "model": model,
+                                            "choices": [{
+                                                "index": 0,
+                                                "delta": {"role": "assistant", "content": answer_part},
+                                                "finish_reason": None
+                                            }]
+                                        }
+                                        yield f"data: {json.dumps(chunk)}\n\n"
+                                        accumulated_chunks.append(answer_part)
+                                continue
+
+                            clean_piece = content_piece.replace("\x00", "")
                             if not clean_piece:
                                 continue
 
-                            # If tools are requested, we buffer to check for tool calls
-                            if tools:
-                                accumulated_chunks.append(clean_piece)
+                            if in_thinking:
+                                if thinking_enabled:
+                                    t_chunk = {
+                                        "id": completion_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created_time,
+                                        "model": model,
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {"role": "assistant", "reasoning_content": clean_piece},
+                                            "finish_reason": None
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(t_chunk)}\n\n"
                             else:
-                                chunk = {
-                                    "id": completion_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created_time,
-                                    "model": model,
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"content": clean_piece},
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(chunk)}\n\n"
-                                accumulated_chunks.append(clean_piece)
+                                if tools:
+                                    accumulated_chunks.append(clean_piece)
+                                else:
+                                    chunk = {
+                                        "id": completion_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created_time,
+                                        "model": model,
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {"role": "assistant", "content": clean_piece},
+                                            "finish_reason": None
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(chunk)}\n\n"
+                                    accumulated_chunks.append(clean_piece)
 
             except Exception as e:
                 err_chunk = {
