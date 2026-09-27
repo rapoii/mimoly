@@ -40,33 +40,15 @@ CHAT_CONV_SAVE_URL = "https://aistudio.xiaomimimo.com/open-apis/chat/conversatio
 MODEL_CATALOG = [
     {
         "id": "mimo-v2.6-pro",
-        "name": "MiMo-V2.6-Pro (Flagship Reasoning)",
+        "name": "MiMo-V2.6-Pro (Flagship Deep Reasoning)",
         "upstream_model": "mimo-v2.6-pro",
-        "description": "Xiaomi flagship reasoning model with deep thinking and high intelligence."
+        "description": "Xiaomi flagship reasoning model with maximum deep thinking and complex problem solving."
     },
     {
         "id": "mimo-v2.6-flash",
-        "name": "MiMo-V2.6-Flash (High-Speed)",
+        "name": "MiMo-V2.6-Flash (High-Speed & Smart)",
         "upstream_model": "mimo-v2.6-flash",
-        "description": "Fast and responsive Xiaomi model for quick tasks and code execution."
-    },
-    {
-        "id": "mimo-v2.5-pro",
-        "name": "MiMo-V2.5-Pro (Alias)",
-        "upstream_model": "mimo-v2.6-pro",
-        "description": "Legacy alias routed to mimo-v2.6-pro."
-    },
-    {
-        "id": "mimo-v2.5",
-        "name": "MiMo-V2.5 (Alias)",
-        "upstream_model": "mimo-v2.6-flash",
-        "description": "Legacy alias routed to mimo-v2.6-flash."
-    },
-    {
-        "id": "mimo",
-        "name": "MiMo Default",
-        "upstream_model": "mimo-v2.6-pro",
-        "description": "Default alias routed to mimo-v2.6-pro."
+        "description": "Xiaomi high-speed, responsive model with full reasoning capabilities."
     },
 ]
 
@@ -456,8 +438,8 @@ async def chat_completions(request: Request):
     clean_model_id = model.split("/")[-1].lower().strip()
     target_upstream_model = MODEL_ALIASES.get(clean_model_id, "mimo-v2.6-pro")
 
-    # Reasoning effort & Thinking configuration
-    reasoning_effort = str(body.get("reasoning_effort", "")).lower()
+    # Reasoning effort & Thinking configuration: MAXIMAL EFFORT MENTOK BY DEFAULT
+    reasoning_effort = str(body.get("reasoning_effort", "max")).lower()
     enable_thinking_param = body.get("enable_thinking")
     thinking_param = body.get("thinking")
 
@@ -469,11 +451,10 @@ async def chat_completions(request: Request):
     elif isinstance(thinking_param, dict) and thinking_param.get("type") == "disabled":
         thinking_enabled = False
 
-    is_rata_kanan = (
-        reasoning_effort in ["xhigh", "high", "max"] or
-        body.get("rata_kanan", False) or
-        os.getenv("MIMOLY_REASONING_EFFORT", "").lower() in ["max", "xhigh", "high"]
-    )
+    # Default to MAXIMUM reasoning effort (rata kanan mentok)
+    is_rata_kanan = True
+    if reasoning_effort in ["low", "none", "off", "0"] or body.get("rata_kanan") is False:
+        is_rata_kanan = False
 
     print(f"[mimoly] Incoming request: model={model} -> {target_upstream_model}, stream={stream}, messages={len(messages)}, tools={len(tools) if tools else 0}, thinking={thinking_enabled}, rata_kanan={is_rata_kanan}")
     try:
@@ -501,11 +482,12 @@ async def chat_completions(request: Request):
 
     if is_rata_kanan:
         amplifier = (
-            "\n\n[SISTEM PENALARAN: EFFORT TERTINGGI / RATA KANAN]\n"
-            "Instruksi berpikir: Gunakan kapasitas reasoning semaksimal mungkin. "
-            "Lakukan penalaran mendalam, teliti, eksploratif, dan komprehensif secara bertahap. "
-            "Uraikan proses berpikir langkah demi langkah secara mendalam, uji setiap hipotesis, "
-            "evaluasi edge-cases dan kemungkinan kesalahan sebelum menyimpulkan jawaban akhir atau memanggil tools."
+            "\n\n[REASONING ENGINE: MAXIMUM EFFORT / PENALARAN TERTINGGI (MENTOK)]\n"
+            "Instruksi Berpikir & Analisis:\n"
+            "- Maksimalkan kapasitas penalaran dan eksplorasi berpikir secara penuh (effort mentok).\n"
+            "- Uraikan seluruh proses penalaran secara mendalam, teliti, terstruktur, dan kritis di dalam blok <think>.\n"
+            "- Uji setiap premis, bandingkan alternatif pemikiran, verifikasi asumsi logika, dan evaluasi edge-cases sebelum menyimpulkan jawaban akhir atau memanggil tools.\n"
+            "- Sajikan hasil akhir dengan akurasi, kedalaman, dan kualitas penalaran tertinggi."
         )
         user_prompt += amplifier
 
@@ -894,6 +876,17 @@ async def chat_completions(request: Request):
 
     full_reply = "".join(accumulated_chunks)
 
+    # Separate thinking / reasoning tokens from content in non-streaming mode
+    reasoning_text = None
+    if "<think>" in full_reply:
+        if "</think>" in full_reply:
+            parts = full_reply.split("</think>", 1)
+            reasoning_text = parts[0].replace("<think>", "").strip()
+            full_reply = parts[1].strip()
+        else:
+            reasoning_text = full_reply.replace("<think>", "").strip()
+            full_reply = ""
+
     # Detect tool calls
     raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
     openai_tool_calls = []
@@ -917,6 +910,9 @@ async def chat_completions(request: Request):
         "role": "assistant",
         "content": clean_text if clean_text else (None if openai_tool_calls else full_reply),
     }
+    if reasoning_text and thinking_enabled:
+        message_payload["reasoning_content"] = reasoning_text
+
     if openai_tool_calls:
         message_payload["tool_calls"] = openai_tool_calls
 

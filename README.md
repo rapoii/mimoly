@@ -84,6 +84,23 @@ curl http://127.0.0.1:8080/health
 
 ---
 
+## 📦 Supported Models & Thinking Controls
+
+Mimoly exclusively provides Xiaomi's two premier models with **maximum reasoning effort (mentok / rata kanan)** enabled by default:
+
+| Model ID | Architecture | Description |
+|---|---|---|
+| `mimo-v2.6-pro` | Flagship Deep Reasoning | Xiaomi's most powerful reasoning model with full chain-of-thought analysis, edge-case evaluation, and complex tool calling. |
+| `mimo-v2.6-flash` | High-Speed & Smart | Ultra-fast, highly responsive model with full reasoning capabilities for rapid coding and iterations. |
+
+### 🧠 Thinking & Reasoning Effort Mentok
+
+- **Default Maximum Effort**: Every request automatically runs at maximum thinking capacity ("rata kanan mentok"), instructing the reasoning engine to rigorously explore edge cases, formulate step-by-step hypotheses, and verify logic before outputting solutions.
+- **Real-time Thinking Streaming**: When streaming, reasoning tokens are delivered live via standard OpenAI/DeepSeek format (`delta.reasoning_content`), allowing CLI interfaces (Hermes, OpenCode, Claude Code) and web clients (NextChat, Cherry Studio) to render live thought processes.
+- **Thinking Toggle**: Pass `"enable_thinking": false` or `"reasoning_effort": "none"` to suppress reasoning tokens if pure instant output is preferred.
+
+---
+
 ## 🔌 Client Integrations
 
 ### Hermes Agent CLI
@@ -97,73 +114,18 @@ providers:
       base_url: "http://127.0.0.1:8080/v1"
       api_key: "no-key"
 
-model: "mimoly/mimo-v2.5-pro"
+model: "mimoly/mimo-v2.6-pro"
 ```
 
 Run Hermes with autonomous tools:
 ```bash
-hermes chat -q "Baca file requirements.txt dan jelaskan dependensinya" --provider mimoly -m mimo-v2.5-pro
+hermes chat -q "Baca file requirements.txt dan jelaskan dependensinya" --provider mimoly -m mimo-v2.6-pro
 ```
 
-### Python (OpenAI SDK)
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8080/v1",
-    api_key="mimoly"  # Any string
-)
-
-response = client.chat.completions.create(
-    model="mimo-v2.5-pro",
-    messages=[
-        {"role": "system", "content": "You are a helpful coding assistant."},
-        {"role": "user", "content": "Write a quick Python HTTP server."}
-    ],
-    stream=True
-)
-
-for chunk in response:
-    content = chunk.choices[0].delta.content or ""
-    print(content, end="", flush=True)
+Or with high-speed flash:
+```bash
+hermes chat -q "Tulis script kalkulator CLI sederhana" --provider mimoly -m mimo-v2.6-flash
 ```
-
-### OpenCode CLI
-
-In `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "provider": {
-    "custom": {
-      "name": "mimoly",
-      "baseURL": "http://127.0.0.1:8080/v1",
-      "apiKey": "no-key",
-      "models": ["mimo-v2.5-pro"]
-    }
-  }
-}
-```
-
----
-
-## 📦 Supported Endpoints & Models
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/health` | `GET` | Proxy status & authentication health check |
-| `/v1/models` | `GET` | List available models (OpenAI format) |
-| `/v1/models/{model}` | `GET` | Model details lookup |
-| `/v1/chat/completions` | `POST` | Chat completions (Streaming & Non-Streaming) |
-| `/api/tags` | `GET` | Ollama model discovery compatibility |
-| `/api/show` | `POST` | Ollama model inspection compatibility |
-
-**Available Models:**
-- `mimo-v2.5-pro` (Default flagship reasoning model)
-- `custom/mimo-v2.5-pro`
-- `mimo-v2.5`
-- `mimo`
 
 ---
 
