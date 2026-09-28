@@ -211,13 +211,19 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     tool_names = [t.get("function", {}).get("name") for t in available_tools] if available_tools else []
 
     # 1. Cek explicit JSON or XML tool_calls
-    # Pola 1A: XML-style <function=name><parameter=key>value</parameter></function>
-    xml_matches = re.findall(r"<function=([a-zA-Z0-9_\-]+)>([\s\S]*?)</function>", reply_text)
+    # Pola 1A: XML-style <function=name> / <invoke name="name"> / <function name="name">
+    xml_matches = re.findall(
+        r"<(?:function|invoke)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</(?:function|invoke)>",
+        reply_text,
+    )
     if xml_matches:
         tc_list = []
         for fn_name, params_str in xml_matches:
             params = {}
-            param_matches = re.findall(r"<parameter=([a-zA-Z0-9_\-]+)>([\s\S]*?)</parameter>", params_str)
+            param_matches = re.findall(
+                r"<parameter(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</parameter>",
+                params_str,
+            )
             for p_name, p_val in param_matches:
                 p_val = p_val.strip()
                 if p_val.isdigit():
@@ -233,7 +239,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
             tc_list.append({"name": fn_name, "arguments": params})
         if tc_list:
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
-            clean = re.sub(r"<function=[a-zA-Z0-9_\-]+>[\s\S]*?</function>", "", clean).strip()
+            clean = re.sub(r"<(?:function|invoke)[\s\S]*?</(?:function|invoke)>", "", clean).strip()
             clean = clean.replace("</think>", "").strip()
             return tc_list, clean
 
