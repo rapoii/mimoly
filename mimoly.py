@@ -552,16 +552,21 @@ async def chat_completions(request: Request):
     # Ensure conversation is registered in Xiaomi database
     conv_id = uuid.uuid4().hex
     save_url = f"{CHAT_CONV_SAVE_URL}?xiaomichatbot_ph={urllib.parse.quote(ph_param)}"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as save_client:
-            await save_client.post(
-                save_url,
-                headers=headers,
-                cookies=cookies,
-                json={"conversationId": conv_id, "type": "chat", "title": f"Mimoly {target_upstream_model}"}
-            )
-    except Exception as e:
-        print(f"[mimoly] Warning: failed to save conversation: {e}")
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as save_client:
+                await save_client.post(
+                    save_url,
+                    headers=headers,
+                    cookies=cookies,
+                    json={"conversationId": conv_id, "type": "chat", "title": f"Mimoly {target_upstream_model}"}
+                )
+            break
+        except Exception as e:
+            if attempt == 2:
+                print(f"[mimoly] Warning: failed to save conversation: {e}")
+            else:
+                await asyncio.sleep(1.0)
 
     # Xiaomi payload structure
     upstream_payload = {
@@ -603,32 +608,34 @@ async def chat_completions(request: Request):
             in_thinking = False
 
             try:
-                async with httpx.AsyncClient(timeout=180.0) as client:
-                    async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
-                        if resp.status_code != 200:
-                            err_text = await resp.aread()
-                            err_chunk = {
-                                "id": completion_id,
-                                "object": "chat.completion.chunk",
-                                "created": created_time,
-                                "model": model,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {"content": f"\n[Error from upstream: HTTP {resp.status_code}: {err_text.decode('utf-8', errors='ignore')}]"},
-                                    "finish_reason": "error"
-                                }]
-                            }
-                            yield f"data: {json.dumps(err_chunk)}\n\n"
-                            yield "data: [DONE]\n\n"
-                            return
+                for attempt in range(3):
+                    try:
+                        async with httpx.AsyncClient(timeout=180.0) as client:
+                            async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
+                                if resp.status_code != 200:
+                                    err_text = await resp.aread()
+                                    err_chunk = {
+                                        "id": completion_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": created_time,
+                                        "model": model,
+                                        "choices": [{
+                                            "index": 0,
+                                            "delta": {"content": f"\n[Error from upstream: HTTP {resp.status_code}: {err_text.decode('utf-8', errors='ignore')}]"},
+                                            "finish_reason": "error"
+                                        }]
+                                    }
+                                    yield f"data: {json.dumps(err_chunk)}\n\n"
+                                    yield "data: [DONE]\n\n"
+                                    return
 
-                        async for line in resp.aiter_lines():
-                            if not line:
-                                continue
-                            if line.startswith("data:"):
-                                print(f"[mimoly sse]: {line[:100]}")
-                            if not line.startswith("data:"):
-                                continue
+                                async for line in resp.aiter_lines():
+                                    if not line:
+                                        continue
+                                    if line.startswith("data:"):
+                                        print(f"[mimoly sse]: {line[:100]}")
+                                    if not line.startswith("data:"):
+                                        continue
 
                             data_str = line[5:].strip()
                             if "[DONE]" in data_str:
@@ -743,6 +750,12 @@ async def chat_completions(request: Request):
                                     }
                                     yield f"data: {json.dumps(chunk)}\n\n"
                                     accumulated_chunks.append(clean_piece)
+                        break
+                    except Exception as conn_err:
+                        if attempt == 2:
+                            raise conn_err
+                        print(f"[mimoly] Upstream stream retry {attempt+1}/3 due to: {conn_err}")
+                        await asyncio.sleep(2.0)
 
             except Exception as e:
                 err_chunk = {
@@ -879,45 +892,53 @@ async def chat_completions(request: Request):
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
-                if resp.status_code != 200:
-                    err_body = await resp.aread()
-                    return JSONResponse(
-                        {"error": f"Upstream HTTP {resp.status_code}: {err_body.decode('utf-8', errors='ignore')}"},
-                        status_code=resp.status_code
-                    )
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
+                        if resp.status_code != 200:
+                            err_body = await resp.aread()
+                            return JSONResponse(
+                                {"error": f"Upstream HTTP {resp.status_code}: {err_body.decode('utf-8', errors='ignore')}"},
+                                status_code=resp.status_code
+                            )
 
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if "[DONE]" in data_str:
-                        break
-                    try:
-                        parsed = json.loads(data_str)
-                    except Exception:
-                        continue
-                    if parsed.get("content") == "[DONE]":
-                        break
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            data_str = line[5:].strip()
+                            if "[DONE]" in data_str:
+                                break
+                            try:
+                                parsed = json.loads(data_str)
+                            except Exception:
+                                continue
+                            if parsed.get("content") == "[DONE]":
+                                break
 
-                    if "promptTokens" in parsed or "totalTokens" in parsed:
-                        usage_data = {
-                            "prompt_tokens": parsed.get("promptTokens", 0),
-                            "completion_tokens": parsed.get("completionTokens", 0),
-                            "total_tokens": parsed.get("totalTokens", 0),
-                        }
-                        native_usage = parsed.get("nativeUsage", {})
-                        reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
-                        if reasoning_tokens:
-                            usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
-                        continue
+                            if "promptTokens" in parsed or "totalTokens" in parsed:
+                                usage_data = {
+                                    "prompt_tokens": parsed.get("promptTokens", 0),
+                                    "completion_tokens": parsed.get("completionTokens", 0),
+                                    "total_tokens": parsed.get("totalTokens", 0),
+                                }
+                                native_usage = parsed.get("nativeUsage", {})
+                                reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+                                if reasoning_tokens:
+                                    usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+                                continue
 
-                    content_piece = parsed.get("content", "")
-                    if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
-                        continue
-                    if content_piece:
-                        accumulated_chunks.append(content_piece.replace("\x00", ""))
+                            content_piece = parsed.get("content", "")
+                            if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
+                                continue
+                            if content_piece:
+                                accumulated_chunks.append(content_piece.replace("\x00", ""))
+                break
+            except Exception as conn_err:
+                if attempt == 2:
+                    raise conn_err
+                print(f"[mimoly] Upstream non-stream retry {attempt+1}/3 due to: {conn_err}")
+                await asyncio.sleep(2.0)
 
     except Exception as e:
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
