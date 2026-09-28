@@ -221,14 +221,14 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
         for fn_name, params_str in xml_matches:
             params = {}
             clean_p = params_str.strip()
-            if clean_p.startswith("{") and clean_p.endswith("}"):
+            idx = clean_p.find("{")
+            if idx != -1:
                 try:
-                    params = json.loads(clean_p)
+                    obj, _ = json.JSONDecoder().raw_decode(clean_p, idx)
+                    if isinstance(obj, dict):
+                        params = obj
                 except Exception:
-                    try:
-                        params, _ = json.JSONDecoder().raw_decode(clean_p)
-                    except Exception:
-                        params = {}
+                    pass
             if not params:
                 param_matches = re.findall(
                     r"<parameter(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</parameter>",
