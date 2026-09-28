@@ -215,28 +215,34 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     m_tc = re.findall(r"<tool_call>([\s\S]*?)(?:</tool_call>|$)", reply_text)
     if m_tc:
         tc_list = []
+        decoder = json.JSONDecoder()
         for block in m_tc:
             clean_block = block.replace("</think>", "").strip()
-            # Match json object inside
-            m_json_obj = re.search(r"(\{[\s\S]*\})", clean_block)
-            if m_json_obj:
+            # Decode all consecutive JSON objects in block
+            pos = 0
+            while pos < len(clean_block):
+                idx = clean_block.find("{", pos)
+                if idx == -1:
+                    break
                 try:
-                    tc_obj = json.loads(m_json_obj.group(1), strict=False)
-                    if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
-                        for item in tc_obj["tool_calls"]:
-                            name = item.get("name")
-                            args = item.get("arguments") or item.get("parameters") or {}
+                    tc_obj, end_pos = decoder.raw_decode(clean_block, idx)
+                    pos = end_pos
+                    if isinstance(tc_obj, dict):
+                        if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
+                            for item in tc_obj["tool_calls"]:
+                                name = item.get("name")
+                                args = item.get("arguments") or item.get("parameters") or {}
+                                if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+                                    name = "terminal"
+                                tc_list.append({"name": name, "arguments": args})
+                        elif "name" in tc_obj:
+                            name = tc_obj["name"]
+                            args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
                             if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                 name = "terminal"
                             tc_list.append({"name": name, "arguments": args})
-                    elif "name" in tc_obj:
-                        name = tc_obj["name"]
-                        args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
-                        if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                            name = "terminal"
-                        tc_list.append({"name": name, "arguments": args})
                 except Exception:
-                    pass
+                    pos = idx + 1
         if tc_list:
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = clean.replace("</think>", "").strip()
