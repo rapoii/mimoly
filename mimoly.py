@@ -220,20 +220,30 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
         tc_list = []
         for fn_name, params_str in xml_matches:
             params = {}
-            param_matches = re.findall(
-                r"<parameter(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</parameter>",
-                params_str,
-            )
-            for p_name, p_val in param_matches:
-                p_val = p_val.strip()
-                if p_val.isdigit():
-                    params[p_name] = int(p_val)
-                elif p_val.lower() == "true":
-                    params[p_name] = True
-                elif p_val.lower() == "false":
-                    params[p_name] = False
-                else:
-                    params[p_name] = p_val
+            clean_p = params_str.strip()
+            if clean_p.startswith("{") and clean_p.endswith("}"):
+                try:
+                    params = json.loads(clean_p)
+                except Exception:
+                    try:
+                        params, _ = json.JSONDecoder().raw_decode(clean_p)
+                    except Exception:
+                        params = {}
+            if not params:
+                param_matches = re.findall(
+                    r"<parameter(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</parameter>",
+                    params_str,
+                )
+                for p_name, p_val in param_matches:
+                    p_val = p_val.strip()
+                    if p_val.isdigit():
+                        params[p_name] = int(p_val)
+                    elif p_val.lower() == "true":
+                        params[p_name] = True
+                    elif p_val.lower() == "false":
+                        params[p_name] = False
+                    else:
+                        params[p_name] = p_val
             if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                 fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
