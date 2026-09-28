@@ -637,119 +637,119 @@ async def chat_completions(request: Request):
                                     if not line.startswith("data:"):
                                         continue
 
-                            data_str = line[5:].strip()
-                            if "[DONE]" in data_str:
-                                print("[mimoly sse] Detected [DONE] marker")
-                                break
+                                    data_str = line[5:].strip()
+                                    if "[DONE]" in data_str:
+                                        print("[mimoly sse] Detected [DONE] marker")
+                                        break
 
-                            try:
-                                parsed = json.loads(data_str)
-                            except Exception:
-                                continue
+                                    try:
+                                        parsed = json.loads(data_str)
+                                    except Exception:
+                                        continue
 
-                            if parsed.get("content") == "[DONE]":
-                                break
+                                    if parsed.get("content") == "[DONE]":
+                                        break
 
-                            # Capture usage metrics from upstream
-                            if "promptTokens" in parsed or "totalTokens" in parsed:
-                                usage_data = {
-                                    "prompt_tokens": parsed.get("promptTokens", 0),
-                                    "completion_tokens": parsed.get("completionTokens", 0),
-                                    "total_tokens": parsed.get("totalTokens", 0),
-                                }
-                                native_usage = parsed.get("nativeUsage", {})
-                                reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
-                                if reasoning_tokens:
-                                    usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
-                                continue
-
-                            content_piece = parsed.get("content", "")
-                            # Ignore dialog ID event
-                            if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
-                                continue
-
-                            if not content_piece:
-                                continue
-
-                            if "<think>" in content_piece:
-                                in_thinking = True
-                                content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
-
-                            if "</think>" in content_piece:
-                                parts = content_piece.split("</think>", 1)
-                                think_part = parts[0].replace("\x00", "")
-                                answer_part = parts[1].replace("\x00", "")
-
-                                if think_part and thinking_enabled:
-                                    t_chunk = {
-                                        "id": completion_id,
-                                        "object": "chat.completion.chunk",
-                                        "created": created_time,
-                                        "model": model,
-                                        "choices": [{
-                                            "index": 0,
-                                            "delta": {"role": "assistant", "reasoning_content": think_part},
-                                            "finish_reason": None
-                                        }]
-                                    }
-                                    yield f"data: {json.dumps(t_chunk)}\n\n"
-
-                                in_thinking = False
-
-                                if answer_part:
-                                    if tools:
-                                        accumulated_chunks.append(answer_part)
-                                    else:
-                                        chunk = {
-                                            "id": completion_id,
-                                            "object": "chat.completion.chunk",
-                                            "created": created_time,
-                                            "model": model,
-                                            "choices": [{
-                                                "index": 0,
-                                                "delta": {"role": "assistant", "content": answer_part},
-                                                "finish_reason": None
-                                            }]
+                                    # Capture usage metrics from upstream
+                                    if "promptTokens" in parsed or "totalTokens" in parsed:
+                                        usage_data = {
+                                            "prompt_tokens": parsed.get("promptTokens", 0),
+                                            "completion_tokens": parsed.get("completionTokens", 0),
+                                            "total_tokens": parsed.get("totalTokens", 0),
                                         }
-                                        yield f"data: {json.dumps(chunk)}\n\n"
-                                        accumulated_chunks.append(answer_part)
-                                continue
+                                        native_usage = parsed.get("nativeUsage", {})
+                                        reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+                                        if reasoning_tokens:
+                                            usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+                                        continue
 
-                            clean_piece = content_piece.replace("\x00", "")
-                            if not clean_piece:
-                                continue
+                                    content_piece = parsed.get("content", "")
+                                    # Ignore dialog ID event
+                                    if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
+                                        continue
 
-                            if in_thinking:
-                                if thinking_enabled:
-                                    t_chunk = {
-                                        "id": completion_id,
-                                        "object": "chat.completion.chunk",
-                                        "created": created_time,
-                                        "model": model,
-                                        "choices": [{
-                                            "index": 0,
-                                            "delta": {"role": "assistant", "reasoning_content": clean_piece},
-                                            "finish_reason": None
-                                        }]
-                                    }
-                                    yield f"data: {json.dumps(t_chunk)}\n\n"
-                            else:
-                                if tools:
-                                    accumulated_chunks.append(clean_piece)
-                                else:
-                                    chunk = {
-                                        "id": completion_id,
-                                        "object": "chat.completion.chunk",
-                                        "created": created_time,
-                                        "model": model,
-                                        "choices": [{
-                                            "index": 0,
-                                            "delta": {"role": "assistant", "content": clean_piece},
-                                            "finish_reason": None
-                                        }]
-                                    }
-                                    yield f"data: {json.dumps(chunk)}\n\n"
-                                    accumulated_chunks.append(clean_piece)
+                                    if not content_piece:
+                                        continue
+
+                                    if "<think>" in content_piece:
+                                        in_thinking = True
+                                        content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
+
+                                    if "</think>" in content_piece:
+                                        parts = content_piece.split("</think>", 1)
+                                        think_part = parts[0].replace("\x00", "")
+                                        answer_part = parts[1].replace("\x00", "")
+
+                                        if think_part and thinking_enabled:
+                                            t_chunk = {
+                                                "id": completion_id,
+                                                "object": "chat.completion.chunk",
+                                                "created": created_time,
+                                                "model": model,
+                                                "choices": [{
+                                                    "index": 0,
+                                                    "delta": {"role": "assistant", "reasoning_content": think_part},
+                                                    "finish_reason": None
+                                                }]
+                                            }
+                                            yield f"data: {json.dumps(t_chunk)}\n\n"
+
+                                        in_thinking = False
+
+                                        if answer_part:
+                                            if tools:
+                                                accumulated_chunks.append(answer_part)
+                                            else:
+                                                chunk = {
+                                                    "id": completion_id,
+                                                    "object": "chat.completion.chunk",
+                                                    "created": created_time,
+                                                    "model": model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {"role": "assistant", "content": answer_part},
+                                                        "finish_reason": None
+                                                    }]
+                                                }
+                                                yield f"data: {json.dumps(chunk)}\n\n"
+                                                accumulated_chunks.append(answer_part)
+                                        continue
+
+                                    clean_piece = content_piece.replace("\x00", "")
+                                    if not clean_piece:
+                                        continue
+
+                                    if in_thinking:
+                                        if thinking_enabled:
+                                            t_chunk = {
+                                                "id": completion_id,
+                                                "object": "chat.completion.chunk",
+                                                "created": created_time,
+                                                "model": model,
+                                                "choices": [{
+                                                    "index": 0,
+                                                    "delta": {"role": "assistant", "reasoning_content": clean_piece},
+                                                    "finish_reason": None
+                                                }]
+                                            }
+                                            yield f"data: {json.dumps(t_chunk)}\n\n"
+                                    else:
+                                        if tools:
+                                            accumulated_chunks.append(clean_piece)
+                                        else:
+                                            chunk = {
+                                                "id": completion_id,
+                                                "object": "chat.completion.chunk",
+                                                "created": created_time,
+                                                "model": model,
+                                                "choices": [{
+                                                    "index": 0,
+                                                    "delta": {"role": "assistant", "content": clean_piece},
+                                                    "finish_reason": None
+                                                }]
+                                            }
+                                            yield f"data: {json.dumps(chunk)}\n\n"
+                                            accumulated_chunks.append(clean_piece)
                         break
                     except Exception as conn_err:
                         if attempt == 2:
