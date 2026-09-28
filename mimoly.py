@@ -210,8 +210,34 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     """Detect explicit JSON tool_calls or extract code blocks mapped to write/shell tools."""
     tool_names = [t.get("function", {}).get("name") for t in available_tools] if available_tools else []
 
-    # 1. Cek explicit JSON tool_calls
-    # Pola 1A: <tool_call> ... </tool_call>
+    # 1. Cek explicit JSON or XML tool_calls
+    # Pola 1A: XML-style <function=name><parameter=key>value</parameter></function>
+    xml_matches = re.findall(r"<function=([a-zA-Z0-9_\-]+)>([\s\S]*?)</function>", reply_text)
+    if xml_matches:
+        tc_list = []
+        for fn_name, params_str in xml_matches:
+            params = {}
+            param_matches = re.findall(r"<parameter=([a-zA-Z0-9_\-]+)>([\s\S]*?)</parameter>", params_str)
+            for p_name, p_val in param_matches:
+                p_val = p_val.strip()
+                if p_val.isdigit():
+                    params[p_name] = int(p_val)
+                elif p_val.lower() == "true":
+                    params[p_name] = True
+                elif p_val.lower() == "false":
+                    params[p_name] = False
+                else:
+                    params[p_name] = p_val
+            if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+                fn_name = "terminal"
+            tc_list.append({"name": fn_name, "arguments": params})
+        if tc_list:
+            clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
+            clean = re.sub(r"<function=[a-zA-Z0-9_\-]+>[\s\S]*?</function>", "", clean).strip()
+            clean = clean.replace("</think>", "").strip()
+            return tc_list, clean
+
+    # Pola 1B: <tool_call> ... </tool_call>
     m_tc = re.findall(r"<tool_call>([\s\S]*?)(?:</tool_call>|$)", reply_text)
     if m_tc:
         tc_list = []
