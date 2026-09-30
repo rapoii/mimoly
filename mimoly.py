@@ -30,6 +30,45 @@ except ImportError:
     print("[mimoly] Missing dependencies. Run: pip install -r requirements.txt")
     sys.exit(1)
 
+try:
+    from json_repair import loads as json_repair_loads
+    JSON_REPAIR_AVAILABLE = True
+except ImportError:
+    JSON_REPAIR_AVAILABLE = False
+    json_repair_loads = None
+
+
+def safe_json_loads(text: str, default=None):
+    """Robust JSON loader: tries json_repair first, falls back to stdlib."""
+    if default is None:
+        default = {}
+    if JSON_REPAIR_AVAILABLE:
+        try:
+            return json_repair_loads(text)
+        except Exception:
+            pass
+    try:
+        decoder = json.JSONDecoder()
+        idx = text.find("{") if "{" in text else text.find("[")
+        if idx == -1:
+            return default
+        obj, _ = decoder.raw_decode(text, idx)
+        return obj
+    except Exception:
+        return default
+
+
+def sanitize_observation(output: str, max_chars: int = 2000) -> str:
+    """Truncate tool observations head/tail to keep context lean and prevent refusal."""
+    if not output or len(output) <= max_chars:
+        return output
+    half = max_chars // 2
+    return (
+        f"{output[:half]}\n\n"
+        f"[... {len(output) - max_chars} characters truncated by mimoly ...]\n\n"
+        f"{output[-half:]}"
+    )
+
 BASE_DIR = Path(__file__).parent.resolve()
 SESSION_FILE = BASE_DIR / "session.json"
 DEFAULT_HOST = "0.0.0.0"
@@ -157,8 +196,8 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                 history.append(f"[Assistant]: {content}")
         elif role == "tool":
             tool_name = m.get("name", "tool")
-            snippet = content[:2500] + ("..." if len(content) > 2500 else "")
-            history.append(f"[Hasil {tool_name}]: {snippet}")
+            sanitized = sanitize_observation(content, max_chars=2000)
+            history.append(f"[Hasil {tool_name}]: {sanitized}")
 
     main_goal = user_goals[-1] if user_goals else ""
 
@@ -174,17 +213,26 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             tool_desc.append(f"- {name}({param_str}): {desc}")
 
         prompt_lines.append(
-            "Kamu adalah asisten AI dengan kemampuan tool calling.\n"
+            "Kamu adalah asisten AI dengan kemampuan tool calling. Gunakan format Qwen XML native.\n"
             "Berikut tools yang tersedia:\n" + "\n".join(tool_desc) + "\n\n"
-            "Jika perlu memanggil tool, panggil dengan format JSON:\n"
-            "```json\n"
-            '{"tool_calls": [{"name": "nama_tool", "arguments": {"param1": "nilai"}}]}\n'
-            "```\n"
-            "atau:\n"
+            "Cara memanggil tool (pakai SATU format ini, jangan format lain):\n"
             "<tool_call>\n"
-            '{"name": "nama_tool", "arguments": {"param1": "nilai"}}\n'
+            "<function=nama_tool>\n"
+            "<parameter=param1>nilai</parameter>\n"
+            "<parameter=param2>nilai</parameter>\n"
+            "</function>\n"
             "</tool_call>\n\n"
-            "Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga."
+            "Atau jika tool butuh argumen kompleks:\n"
+            "<tool_call>\n"
+            "<function=nama_tool>\n"
+            '{\n  "param1": "nilai",\n  "param2": "nilai"\n}\n'
+            "</function>\n"
+            "</tool_call>\n\n"
+            "PENTING:\n"
+            "- Panggil SATU tool per blok <tool_call>.\n"
+            "- Selalu tutup dengan </function></tool_call>.\n"
+            "- Jangan ulangi tool call yang sama tanpa membaca hasil observasi dulu.\n"
+            "- Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga."
         )
 
     if history:
@@ -257,34 +305,40 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     m_tc = re.findall(r"<tool_call>([\s\S]*?)(?:</tool_call>|$)", reply_text)
     if m_tc:
         tc_list = []
-        decoder = json.JSONDecoder()
         for block in m_tc:
             clean_block = block.replace("</think>", "").strip()
-            # Decode all consecutive JSON objects in block
-            pos = 0
-            while pos < len(clean_block):
-                idx = clean_block.find("{", pos)
-                if idx == -1:
-                    break
-                try:
-                    tc_obj, end_pos = decoder.raw_decode(clean_block, idx)
-                    pos = end_pos
-                    if isinstance(tc_obj, dict):
-                        if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
-                            for item in tc_obj["tool_calls"]:
-                                name = item.get("name")
-                                args = item.get("arguments") or item.get("parameters") or {}
+            # Try safe_json_loads first (json-repair is more tolerant)
+            tc_obj = safe_json_loads(clean_block, default=None)
+            if isinstance(tc_obj, list):
+                for item in tc_obj:
+                    if isinstance(item, dict):
+                        if "tool_calls" in item and isinstance(item["tool_calls"], list):
+                            for tc in item["tool_calls"]:
+                                name = tc.get("name")
+                                args = tc.get("arguments") or tc.get("parameters") or {}
                                 if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                     name = "terminal"
                                 tc_list.append({"name": name, "arguments": args})
-                        elif "name" in tc_obj:
-                            name = tc_obj["name"]
-                            args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
+                        elif "name" in item:
+                            name = item["name"]
+                            args = item.get("arguments") or item.get("parameters") or {}
                             if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                 name = "terminal"
                             tc_list.append({"name": name, "arguments": args})
-                except Exception:
-                    pos = idx + 1
+            elif isinstance(tc_obj, dict):
+                if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
+                    for tc in tc_obj["tool_calls"]:
+                        name = tc.get("name")
+                        args = tc.get("arguments") or tc.get("parameters") or {}
+                        if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+                            name = "terminal"
+                        tc_list.append({"name": name, "arguments": args})
+                elif "name" in tc_obj:
+                    name = tc_obj["name"]
+                    args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
+                    if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+                        name = "terminal"
+                    tc_list.append({"name": name, "arguments": args})
         if tc_list:
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = clean.replace("</think>", "").strip()
@@ -506,6 +560,12 @@ async def chat_completions(request: Request):
         is_rata_kanan = True
 
     print(f"[mimoly] Incoming request: model={model} -> {target_upstream_model}, stream={stream}, messages={len(messages)}, tools={len(tools) if tools else 0}, thinking={thinking_enabled}, rata_kanan={is_rata_kanan}")
+
+    # Cap thinking + answer output via max_completion_tokens if not set by caller
+    # (prevents unbounded thinking bloat - research shows MiMo can produce 25-30k thinking tokens without cap)
+    if not body.get("max_completion_tokens") and not body.get("max_tokens"):
+        body["max_completion_tokens"] = 8192
+
     try:
         with open("last_request.json", "w", encoding="utf-8") as f_req:
             json.dump(body, f_req, indent=2, ensure_ascii=False)
