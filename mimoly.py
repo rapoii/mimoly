@@ -238,7 +238,8 @@ AGENT_PROFILES = {
             "ATURAN KERAS:\n"
             "- SELALU tutup dengan </function></tool_call>.\n"
             "- Panggil SATU tool per blok, inspect hasilnya, baru lanjut.\n"
-            "- Jika user minta tulis kode, langsung tulis kode lengkap fungsional di blok ```markdown."
+            "- Path file: SELALU gunakan path relatif terhadap root project yang persis sama, contoh: 'src/app/page.tsx'.\n"
+            "- Jika user minta tulis kode, langsung tulis kode lengkap fungsional sekarang juga."
         ),
     },
     "pi": {
@@ -358,6 +359,34 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     return "\n\n".join(prompt_lines)
 
 
+def normalize_tool_args(name: str, args: dict) -> dict:
+    """Normalize tool arguments for consistency across frameworks and models."""
+    if not isinstance(args, dict):
+        return args
+
+    # Alias normalization
+    if "file" in args and "path" not in args:
+        args["path"] = args.pop("file")
+    if "filename" in args and "path" not in args:
+        args["path"] = args.pop("filename")
+    if "filepath" in args and "path" not in args:
+        args["path"] = args.pop("filepath")
+    if "cmd" in args and "command" not in args:
+        args["command"] = args.pop("cmd")
+
+    # Path normalization for file tools
+    if "path" in args and isinstance(args["path"], str):
+        p = args["path"].replace("\\", "/").strip()
+        idx = p.find("src/")
+        if idx != -1 and (p.startswith("C:/") or p.startswith("D:/") or "/" in p[:idx]):
+            p = p[idx:]
+        elif p in ["page.tsx", "layout.tsx", "globals.css"]:
+            p = f"src/app/{p}"
+        args["path"] = p
+
+    return args
+
+
 def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[List[Dict[str, Any]]] = None):
     """Detect explicit JSON tool_calls or extract code blocks mapped to write/shell tools."""
     tool_names = [t.get("function", {}).get("name") for t in available_tools] if available_tools else []
@@ -397,15 +426,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                     else:
                         params[p_name] = p_val
 
-            # Alias normalization for common tool argument names
-            if "file" in params and "path" not in params:
-                params["path"] = params.pop("file")
-            if "filename" in params and "path" not in params:
-                params["path"] = params.pop("filename")
-            if "filepath" in params and "path" not in params:
-                params["path"] = params.pop("filepath")
-            if "cmd" in params and "command" not in params:
-                params["command"] = params.pop("cmd")
+            params = normalize_tool_args(fn_name, params)
             if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                 fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
@@ -429,13 +450,13 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                         if "tool_calls" in item and isinstance(item["tool_calls"], list):
                             for tc in item["tool_calls"]:
                                 name = tc.get("name")
-                                args = tc.get("arguments") or tc.get("parameters") or {}
+                                args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {})
                                 if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                     name = "terminal"
                                 tc_list.append({"name": name, "arguments": args})
                         elif "name" in item:
                             name = item["name"]
-                            args = item.get("arguments") or item.get("parameters") or {}
+                            args = normalize_tool_args(name, item.get("arguments") or item.get("parameters") or {})
                             if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                 name = "terminal"
                             tc_list.append({"name": name, "arguments": args})
@@ -443,13 +464,13 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                 if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
                     for tc in tc_obj["tool_calls"]:
                         name = tc.get("name")
-                        args = tc.get("arguments") or tc.get("parameters") or {}
+                        args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {})
                         if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                             name = "terminal"
                         tc_list.append({"name": name, "arguments": args})
                 elif "name" in tc_obj:
                     name = tc_obj["name"]
-                    args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
+                    args = normalize_tool_args(name, tc_obj.get("arguments") or tc_obj.get("parameters") or {})
                     if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                         name = "terminal"
                     tc_list.append({"name": name, "arguments": args})
