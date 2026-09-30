@@ -377,11 +377,12 @@ def normalize_tool_args(name: str, args: dict) -> dict:
     # Path normalization for file tools
     if "path" in args and isinstance(args["path"], str):
         p = args["path"].replace("\\", "/").strip()
-        idx = p.find("src/")
-        if idx != -1 and (p.startswith("C:/") or p.startswith("D:/") or "/" in p[:idx]):
-            p = p[idx:]
-        elif p in ["page.tsx", "layout.tsx", "globals.css"]:
-            p = f"src/app/{p}"
+        if p in ["page.tsx", "layout.tsx", "globals.css"]:
+            p = f"projects/websites/spectra/src/app/{p}"
+        elif p.startswith("src/app/") or p.startswith("src/"):
+            p = f"projects/websites/spectra/{p}"
+        elif p.startswith("D:/Software/Hermes Workspace/"):
+            p = p[len("D:/Software/Hermes Workspace/"):]
         args["path"] = p
 
     return args
