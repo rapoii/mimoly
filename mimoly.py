@@ -359,7 +359,7 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     return "\n\n".join(prompt_lines)
 
 
-def normalize_tool_args(name: str, args: dict) -> dict:
+def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
     """Normalize tool arguments for consistency across frameworks and models."""
     if not isinstance(args, dict):
         return args
@@ -378,6 +378,12 @@ def normalize_tool_args(name: str, args: dict) -> dict:
     if name == "read_file":
         args.pop("limit", None)
         args.pop("offset", None)
+
+    # Infer missing path from user_prompt if write_file/read_file omitted it
+    if name in ["write_file", "read_file"] and "path" not in args and user_prompt:
+        m_p = re.search(r"['\"]([a-zA-Z0-9_\-/\\]+\.[a-zA-Z0-9]+)['\"]", user_prompt)
+        if m_p:
+            args["path"] = m_p.group(1)
 
     # Path normalization for file tools
     if "path" in args and isinstance(args["path"], str):
@@ -432,7 +438,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                     else:
                         params[p_name] = p_val
 
-            params = normalize_tool_args(fn_name, params)
+            params = normalize_tool_args(fn_name, params, user_prompt)
             if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                 fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
@@ -456,13 +462,13 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                         if "tool_calls" in item and isinstance(item["tool_calls"], list):
                             for tc in item["tool_calls"]:
                                 name = tc.get("name")
-                                args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {})
+                                args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt)
                                 if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                     name = "terminal"
                                 tc_list.append({"name": name, "arguments": args})
                         elif "name" in item:
                             name = item["name"]
-                            args = normalize_tool_args(name, item.get("arguments") or item.get("parameters") or {})
+                            args = normalize_tool_args(name, item.get("arguments") or item.get("parameters") or {}, user_prompt)
                             if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                 name = "terminal"
                             tc_list.append({"name": name, "arguments": args})
@@ -470,13 +476,13 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                 if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
                     for tc in tc_obj["tool_calls"]:
                         name = tc.get("name")
-                        args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {})
+                        args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt)
                         if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                             name = "terminal"
                         tc_list.append({"name": name, "arguments": args})
                 elif "name" in tc_obj:
                     name = tc_obj["name"]
-                    args = normalize_tool_args(name, tc_obj.get("arguments") or tc_obj.get("parameters") or {})
+                    args = normalize_tool_args(name, tc_obj.get("arguments") or tc_obj.get("parameters") or {}, user_prompt)
                     if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                         name = "terminal"
                     tc_list.append({"name": name, "arguments": args})
