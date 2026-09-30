@@ -180,7 +180,7 @@ AGENT_PROFILES = {
             "Kamu adalah AI coding agent. Gunakan format tool call ala Claude Code (Anthropic style):\n"
             "Untuk memanggil tool, emit JSON tool_use block:\n"
             "```json\n"
-            '{{"type": "tool_use", "id": "toolu_<random>", "name": "<nama_tool>", "input": {{<params>}}}}\n'
+            '{"type": "tool_use", "id": "toolu_<random>", "name": "<nama_tool>", "input": {<params>}}\n'
             "```\n\n"
             "Atau gunakan format XML <tool_call>...</tool_call> dengan <function=nama_tool> dan <parameter=kunci>nilai</parameter>.\n\n"
             "Tools yang tersedia:\n{tool_desc}\n\n"
@@ -197,7 +197,7 @@ AGENT_PROFILES = {
             "Available tools:\n{tool_desc}\n\n"
             "When you need a tool, emit EXACTLY this JSON shape and nothing else in the same turn:\n"
             "```json\n"
-            '{{"tool_calls": [{{"id": "call_<random>", "type": "function", "function": {{"name": "<nama_tool>", "arguments": "<JSON-stringified params>"}}}}]}}\n'
+            '{"tool_calls": [{"id": "call_<random>", "type": "function", "function": {"name": "<nama_tool>", "arguments": "<JSON-stringified params>"}}]}\n'
             "```\n\n"
             "RULES:\n"
             "- Arguments MUST be a JSON string (escaped), not an object.\n"
@@ -220,7 +220,7 @@ AGENT_PROFILES = {
             "</tool_call>\n\n"
             "FORMAT 2 - JSON markdown:\n"
             "```json\n"
-            '{{"tool_calls": [{{"name": "nama_tool", "arguments": {{"kunci": "nilai"}}}}]}}\n'
+            '{"tool_calls": [{"name": "nama_tool", "arguments": {"kunci": "nilai"}}]}\n'
             "```\n\n"
             "Pilih satu format dan pakai konsisten. Jangan campur dalam satu turn."
         ),
@@ -336,9 +336,8 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             tool_desc.append(f"- {name}({param_str}): {desc}")
 
         profile = AGENT_PROFILES.get(framework, AGENT_PROFILES["default"])
-        prompt_lines.append(
-            profile["tool_intro"].format(tool_desc="\n".join(tool_desc))
-        )
+        intro_text = profile["tool_intro"].replace("{tool_desc}", "\n".join(tool_desc))
+        prompt_lines.append(intro_text)
 
     if history:
         # Keep recent history
