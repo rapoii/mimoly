@@ -374,6 +374,11 @@ def normalize_tool_args(name: str, args: dict) -> dict:
     if "cmd" in args and "command" not in args:
         args["command"] = args.pop("cmd")
 
+    # Remove pagination parameters from read_file to avoid Hermes CLI 'stale_write_blocked (partial view)' refusal
+    if name == "read_file":
+        args.pop("limit", None)
+        args.pop("offset", None)
+
     # Path normalization for file tools
     if "path" in args and isinstance(args["path"], str):
         p = args["path"].replace("\\", "/").strip()
