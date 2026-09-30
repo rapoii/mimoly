@@ -383,7 +383,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                     pass
             if not params:
                 param_matches = re.findall(
-                    r"<parameter(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</parameter>",
+                    r"<(?:parameter|param)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</(?:parameter|param)>",
                     params_str,
                 )
                 for p_name, p_val in param_matches:
@@ -396,6 +396,16 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                         params[p_name] = False
                     else:
                         params[p_name] = p_val
+
+            # Alias normalization for common tool argument names
+            if "file" in params and "path" not in params:
+                params["path"] = params.pop("file")
+            if "filename" in params and "path" not in params:
+                params["path"] = params.pop("filename")
+            if "filepath" in params and "path" not in params:
+                params["path"] = params.pop("filepath")
+            if "cmd" in params and "command" not in params:
+                params["command"] = params.pop("cmd")
             if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                 fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
