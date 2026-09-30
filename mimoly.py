@@ -148,7 +148,130 @@ def get_session_cookies() -> Dict[str, str]:
     return cookies
 
 
-def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> str:
+AGENT_PROFILES = {
+    "default": {
+        "label": "Default (Qwen XML native)",
+        "tool_intro": (
+            "Kamu adalah asisten AI dengan kemampuan tool calling. Gunakan format Qwen XML native.\n"
+            "Berikut tools yang tersedia:\n{tool_desc}\n\n"
+            "Cara memanggil tool (pakai SATU format ini, jangan format lain):\n"
+            "<tool_call>\n"
+            "<function=nama_tool>\n"
+            "<parameter=param1>nilai</parameter>\n"
+            "<parameter=param2>nilai</parameter>\n"
+            "</function>\n"
+            "</tool_call>\n\n"
+            "Atau jika tool butuh argumen kompleks:\n"
+            "<tool_call>\n"
+            "<function=nama_tool>\n"
+            '{\n  "param1": "nilai",\n  "param2": "nilai"\n}\n'
+            "</function>\n"
+            "</tool_call>\n\n"
+            "PENTING:\n"
+            "- Panggil SATU tool per blok <tool_call>.\n"
+            "- Selalu tutup dengan </function></tool_call>.\n"
+            "- Jangan ulangi tool call yang sama tanpa membaca hasil observasi dulu.\n"
+            "- Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga."
+        ),
+    },
+    "claude-code": {
+        "label": "Claude Code (Anthropic XML/JSON hybrid)",
+        "tool_intro": (
+            "Kamu adalah AI coding agent. Gunakan format tool call ala Claude Code (Anthropic style):\n"
+            "Untuk memanggil tool, emit JSON tool_use block:\n"
+            "```json\n"
+            '{{"type": "tool_use", "id": "toolu_<random>", "name": "<nama_tool>", "input": {{<params>}}}}\n'
+            "```\n\n"
+            "Atau gunakan format XML <tool_call>...</tool_call> dengan <function=nama_tool> dan <parameter=kunci>nilai</parameter>.\n\n"
+            "Tools yang tersedia:\n{tool_desc}\n\n"
+            "ATURAN:\n"
+            "- Panggil SATU tool per turn, inspect hasilnya, baru panggil berikutnya.\n"
+            "- Untuk code generation: tulis kode lengkap di markdown ``` blok bahasa.\n"
+            "- Jangan haluskan jawaban dengan teks bertele-tele, langsung kerjakan."
+        ),
+    },
+    "codex": {
+        "label": "OpenAI Codex (strict JSON function calling)",
+        "tool_intro": (
+            "You are an AI coding assistant. Use OpenAI strict JSON function calling format.\n"
+            "Available tools:\n{tool_desc}\n\n"
+            "When you need a tool, emit EXACTLY this JSON shape and nothing else in the same turn:\n"
+            "```json\n"
+            '{{"tool_calls": [{{"id": "call_<random>", "type": "function", "function": {{"name": "<nama_tool>", "arguments": "<JSON-stringified params>"}}}}]}}\n'
+            "```\n\n"
+            "RULES:\n"
+            "- Arguments MUST be a JSON string (escaped), not an object.\n"
+            "- One tool call per turn unless parallel calls are independent.\n"
+            "- Read the tool result, then decide the next step.\n"
+            "- If the task is a code task, output the full working code immediately."
+        ),
+    },
+    "opencode": {
+        "label": "OpenCode (XML/JSON tolerant)",
+        "tool_intro": (
+            "Kamu adalah AI coding agent. Pakai format OpenCode yang fleksibel (XML atau JSON).\n"
+            "Tools tersedia:\n{tool_desc}\n\n"
+            "Cara panggil tool (pilih salah satu, konsisten dalam satu turn):\n\n"
+            "FORMAT 1 - XML (Qwen-style):\n"
+            "<tool_call>\n"
+            "<function=nama_tool>\n"
+            "<parameter=kunci>nilai</parameter>\n"
+            "</function>\n"
+            "</tool_call>\n\n"
+            "FORMAT 2 - JSON markdown:\n"
+            "```json\n"
+            '{{"tool_calls": [{{"name": "nama_tool", "arguments": {{"kunci": "nilai"}}}}]}}\n'
+            "```\n\n"
+            "Pilih satu format dan pakai konsisten. Jangan campur dalam satu turn."
+        ),
+    },
+    "hermes": {
+        "label": "Hermes CLI (Qwen XML strict)",
+        "tool_intro": (
+            "Kamu adalah AI agent di Hermes CLI. SELALU gunakan format Qwen XML ini untuk tool call:\n"
+            "<tool_call>\n"
+            "<function=nama_tool>\n"
+            "<parameter=kunci>nilai</parameter>\n"
+            "</function>\n"
+            "</tool_call>\n\n"
+            "Tools tersedia:\n{tool_desc}\n\n"
+            "ATURAN KERAS:\n"
+            "- SELALU tutup dengan </function></tool_call>.\n"
+            "- Panggil SATU tool per blok, inspect hasilnya, baru lanjut.\n"
+            "- Jika user minta tulis kode, langsung tulis kode lengkap fungsional di blok ```markdown."
+        ),
+    },
+    "pi": {
+        "label": "Pi / Oh My Pi (plain text + simple XML)",
+        "tool_intro": (
+            "Kamu asisten coding. Untuk panggil tool, gunakan format XML sederhana:\n"
+            "<tool_call>\n"
+            "<function=nama_tool>\n"
+            "<parameter=kunci>nilai</parameter>\n"
+            "</function>\n"
+            "</tool_call>\n\n"
+            "Tools:\n{tool_desc}\n\n"
+            "Prinsip: ringkas, satu tool per turn, langsung tulis kode kalau diminta."
+        ),
+    },
+}
+
+
+def detect_agent_framework(request: Request, body: dict) -> str:
+    """Detect which agent framework is calling, from header > body > env."""
+    framework = request.headers.get("X-Agent-Framework", "").lower().strip()
+    if framework in AGENT_PROFILES:
+        return framework
+    framework = (body.get("agent_framework") or body.get("framework") or "").lower().strip()
+    if framework in AGENT_PROFILES:
+        return framework
+    env_framework = os.environ.get("MIMOLY_FRAMEWORK", "").lower().strip()
+    if env_framework in AGENT_PROFILES:
+        return env_framework
+    return "default"
+
+
+def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, framework: str = "default") -> str:
     """Format dialogue history and tool definitions cleanly for MiMo."""
     if not tools:
         formatted = []
@@ -212,27 +335,9 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             param_str = ", ".join(params)
             tool_desc.append(f"- {name}({param_str}): {desc}")
 
+        profile = AGENT_PROFILES.get(framework, AGENT_PROFILES["default"])
         prompt_lines.append(
-            "Kamu adalah asisten AI dengan kemampuan tool calling. Gunakan format Qwen XML native.\n"
-            "Berikut tools yang tersedia:\n" + "\n".join(tool_desc) + "\n\n"
-            "Cara memanggil tool (pakai SATU format ini, jangan format lain):\n"
-            "<tool_call>\n"
-            "<function=nama_tool>\n"
-            "<parameter=param1>nilai</parameter>\n"
-            "<parameter=param2>nilai</parameter>\n"
-            "</function>\n"
-            "</tool_call>\n\n"
-            "Atau jika tool butuh argumen kompleks:\n"
-            "<tool_call>\n"
-            "<function=nama_tool>\n"
-            '{\n  "param1": "nilai",\n  "param2": "nilai"\n}\n'
-            "</function>\n"
-            "</tool_call>\n\n"
-            "PENTING:\n"
-            "- Panggil SATU tool per blok <tool_call>.\n"
-            "- Selalu tutup dengan </function></tool_call>.\n"
-            "- Jangan ulangi tool call yang sama tanpa membaca hasil observasi dulu.\n"
-            "- Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga."
+            profile["tool_intro"].format(tool_desc="\n".join(tool_desc))
         )
 
     if history:
@@ -578,9 +683,11 @@ async def chat_completions(request: Request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=401)
 
-    # Format unified prompt
+    # Format unified prompt (with per-framework tool template)
     if tools or len(messages) > 1:
-        user_prompt = build_agent_prompt(messages, tools)
+        agent_framework = detect_agent_framework(request, body)
+        print(f"[mimoly] agent_framework={agent_framework} (profile: {AGENT_PROFILES[agent_framework]['label']})")
+        user_prompt = build_agent_prompt(messages, tools, framework=agent_framework)
     else:
         user_prompt = ""
         for m in reversed(messages):

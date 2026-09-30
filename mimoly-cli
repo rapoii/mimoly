@@ -1,0 +1,130 @@
+#!/usr/bin/env python
+"""
+mimoly-cli: thin wrapper to use Mimoly as Web2API backend for any agent framework
+WITHOUT modifying the upstream CLI (Hermes, Claude Code, Codex, OpenCode, Pi, etc).
+
+Usage:
+    # Set MiMo as default provider for a CLI invocation
+    mimoly-cli claude "tolong refactor file X"
+    mimoly-cli codex --help
+    MIMOLY_FRAMEWORK=claude-code mimoly-cli opencode
+    MIMOLY_FRAMEWORK=codex mimoly-cli opencode
+
+How it works:
+    1. Detect which CLI binary is invoked (claude, codex, opencode, hermes, pi).
+    2. Map to corresponding Mimoly agent framework profile.
+    3. Inject MIMOLY_FRAMEWORK env var so the upstream CLI passes it to Mimoly.
+    4. Re-exec the upstream CLI unchanged.
+
+This script does NOT modify, patch, or replace any upstream CLI.
+It just sets environment variables before exec'ing the original binary.
+"""
+import os
+import sys
+import shutil
+import subprocess
+from pathlib import Path
+
+# Map: CLI binary name -> Mimoly framework profile name
+CLI_TO_FRAMEWORK = {
+    "claude": "claude-code",
+    "claude-code": "claude-code",
+    "codex": "codex",
+    "opencode": "opencode",
+    "oc": "opencode",
+    "hermes": "hermes",
+    "pi": "pi",
+    "oh-my-pi": "pi",
+    "oh-my-pi": "pi",
+}
+
+# Common install locations on Windows
+COMMON_BIN_DIRS = [
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "claude-code",
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "opencode" / "bin",
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WindowsApps",
+    Path(os.environ.get("APPDATA", "")) / "npm",
+    Path(os.environ.get("USERPROFILE", "")) / ".local" / "bin",
+    Path(os.environ.get("USERPROFILE", "")) / ".cargo" / "bin",
+    Path("/usr/local/bin"),
+    Path("/usr/bin"),
+]
+
+
+def find_cli(binary: str) -> str:
+    """Find upstream CLI binary, prefer absolute path in PATH or common dirs."""
+    found = shutil.which(binary)
+    if found:
+        return found
+    # Windows: also try .cmd, .bat, .exe, .ps1
+    if os.name == "nt":
+        for ext in (".cmd", ".bat", ".exe", ".ps1"):
+            for d in COMMON_BIN_DIRS:
+                cand = d / f"{binary}{ext}"
+                if cand.exists():
+                    return str(cand)
+    return binary  # let subprocess raise FileNotFoundError
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print("mimoly-cli: thin wrapper for using Mimoly Web2API as backend for any agent CLI.")
+        print()
+        print("Usage: mimoly-cli <cli-binary> [args...]")
+        print()
+        print("Supported CLI binaries (auto-detected framework profile):")
+        for cli, fw in sorted(set(CLI_TO_FRAMEWORK.items())):
+            print(f"  {cli:<14} -> framework={fw}")
+        print()
+        print("Environment:")
+        print("  MIMOLY_FRAMEWORK    override framework profile (default: auto from CLI name)")
+        print("  OPENAI_BASE_URL     override Mimoly endpoint (default: http://127.0.0.1:8080/v1)")
+        print()
+        print("How it works:")
+        print("  1. Detects which CLI you invoke (claude/codex/opencode/hermes/pi).")
+        print("  2. Injects MIMOLY_FRAMEWORK env so Mimoly uses matching prompt template.")
+        print("  3. Re-execs the upstream CLI binary unchanged.")
+        print("  4. Does NOT modify or patch any upstream CLI.")
+        sys.exit(0)
+
+    cli_name = sys.argv[1]
+    cli_args = sys.argv[2:]
+
+    # Map CLI -> framework profile
+    framework = CLI_TO_FRAMEWORK.get(cli_name.lower())
+    if not framework:
+        # Pass through unchanged (not a known CLI, don't touch env)
+        print(f"[mimoly-cli] Unknown CLI '{cli_name}', passing through unchanged.", file=sys.stderr)
+        cli_path = find_cli(cli_name)
+        os.execvp(cli_path, [cli_name] + cli_args)
+        return
+
+    # Inject framework env so Mimoly picks the right prompt template
+    env = os.environ.copy()
+    env["MIMOLY_FRAMEWORK"] = framework
+    # Point upstream CLI's "openai-compatible" base_url to local Mimoly if it respects OPENAI_BASE_URL
+    env.setdefault("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+    env.setdefault("OPENAI_API_KEY", "sk-mimoly-local-no-key-required")
+    # Codex env var
+    env.setdefault("CODEX_HOME", str(Path.home() / ".codex"))
+    # OpenCode env var
+    env.setdefault("OPENCODE_PROVIDER", "mimoly")
+
+    cli_path = find_cli(cli_name)
+    print(
+        f"[mimoly-cli] launching '{cli_name}' with framework={framework}, "
+        f"OPENAI_BASE_URL={env['OPENAI_BASE_URL']}",
+        file=sys.stderr,
+    )
+
+    try:
+        result = subprocess.run([cli_path] + cli_args, env=env)
+        sys.exit(result.returncode)
+    except FileNotFoundError:
+        print(f"[mimoly-cli] ERROR: CLI '{cli_name}' not found in PATH.", file=sys.stderr)
+        print(f"[mimoly-cli] Install it or add to PATH, then re-run.", file=sys.stderr)
+        sys.exit(127)
+
+
+if __name__ == "__main__":
+    main()
