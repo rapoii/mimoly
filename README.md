@@ -127,6 +127,43 @@ Or with high-speed flash:
 hermes chat -q "Tulis script kalkulator CLI sederhana" --provider mimoly -m mimo-v2.6-flash
 ```
 
+### Universal Agent Framework Adapter (`mimoly-cli`)
+
+**Use Mimoly as backend for ANY agent CLI without modifying the CLI itself** (Hermes, Claude Code, Codex, OpenCode, Pi, Oh-My-Pi, etc).
+
+The wrapper auto-detects which CLI you invoke, sets the `MIMOLY_FRAMEWORK` env var, and re-execs the upstream binary unchanged. No patches, no forks.
+
+```bash
+# Launch any CLI through the wrapper
+mimoly-cli hermes chat -q "tulis function X"
+mimoly-cli claude "refactor file src/app.tsx"
+mimoly-cli codex "implement binary search in Python"
+mimoly-cli opencode "add dark mode"
+mimoly-cli pi "explain this regex"
+
+# Override framework explicitly
+MIMOLY_FRAMEWORK=claude-code mimoly-cli some-other-cli
+
+# Or hit Mimoly directly with header (any HTTP client)
+curl -X POST http://127.0.0.1:8080/v1/chat/completions \
+  -H "X-Agent-Framework: claude-code" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "mimo-v2.6-pro", "messages": [...]}'
+```
+
+Supported frameworks (each gets a tailored tool-call prompt template):
+
+| Framework | CLI Binaries | Tool Call Format |
+|---|---|---|
+| `default` | (fallback) | Qwen XML `<function=...>` |
+| `claude-code` | `claude`, `claude-code` | Anthropic XML/JSON hybrid |
+| `codex` | `codex` | Strict OpenAI JSON function calling |
+| `opencode` | `opencode`, `oc` | XML or JSON markdown (flexible) |
+| `hermes` | `hermes` | Qwen XML strict |
+| `pi` | `pi`, `oh-my-pi` | Simple XML |
+
+Resolution order: `X-Agent-Framework` header > body `agent_framework` > `MIMOLY_FRAMEWORK` env > fallback to `default`.
+
 ---
 
 ## ⚖️ License & Disclaimer
