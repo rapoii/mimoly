@@ -486,8 +486,8 @@ async def chat_completions(request: Request):
     clean_model_id = model.split("/")[-1].lower().strip()
     target_upstream_model = MODEL_ALIASES.get(clean_model_id, "mimo-v2.6-pro")
 
-    # Reasoning effort & Thinking configuration: MAXIMAL EFFORT MENTOK BY DEFAULT
-    reasoning_effort = str(body.get("reasoning_effort", "max")).lower()
+    # Reasoning effort & Thinking configuration: Natural thinking enabled by default
+    reasoning_effort = str(body.get("reasoning_effort", "default")).lower()
     enable_thinking_param = body.get("enable_thinking")
     thinking_param = body.get("thinking")
 
@@ -499,10 +499,11 @@ async def chat_completions(request: Request):
     elif isinstance(thinking_param, dict) and thinking_param.get("type") == "disabled":
         thinking_enabled = False
 
-    # Default to MAXIMUM reasoning effort (rata kanan mentok)
-    is_rata_kanan = True
-    if reasoning_effort in ["low", "none", "off", "0"] or body.get("rata_kanan") is False:
-        is_rata_kanan = False
+    # Default to natural thinking (bawaan MiMo 2.6 Pro, fast & focused, no artificial overthinking).
+    # Hanya aktifkan amplifier "rata kanan" jika eksplisit diminta via reasoning_effort='max'/'extreme'/'rata_kanan'
+    is_rata_kanan = False
+    if reasoning_effort in ["max", "high", "extreme", "rata_kanan"] or body.get("rata_kanan") is True:
+        is_rata_kanan = True
 
     print(f"[mimoly] Incoming request: model={model} -> {target_upstream_model}, stream={stream}, messages={len(messages)}, tools={len(tools) if tools else 0}, thinking={thinking_enabled}, rata_kanan={is_rata_kanan}")
     try:
