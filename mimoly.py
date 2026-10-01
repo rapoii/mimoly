@@ -373,6 +373,17 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
         args["path"] = args.pop("filepath")
     if "cmd" in args and "command" not in args:
         args["command"] = args.pop("cmd")
+    if name == "search_files" and "query" in args and "pattern" not in args:
+        args["pattern"] = args.pop("query")
+    if name == "patch":
+        if "old_code" in args and "old_string" not in args:
+            args["old_string"] = args.pop("old_code")
+        if "new_code" in args and "new_string" not in args:
+            args["new_string"] = args.pop("new_code")
+        if "find" in args and "old_string" not in args:
+            args["old_string"] = args.pop("find")
+        if "replace" in args and "new_string" not in args:
+            args["new_string"] = args.pop("replace")
 
     # Remove pagination parameters from read_file to avoid Hermes CLI 'stale_write_blocked (partial view)' refusal
     if name == "read_file":
@@ -380,7 +391,7 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
         args.pop("offset", None)
 
     # Infer missing path from user_prompt if write_file/read_file omitted it
-    if name in ["write_file", "read_file"] and "path" not in args and user_prompt:
+    if name in ["write_file", "read_file", "patch"] and "path" not in args and user_prompt:
         m_p = re.search(r"['\"]([a-zA-Z0-9_\-/\\]+\.[a-zA-Z0-9]+)['\"]", user_prompt)
         if m_p:
             args["path"] = m_p.group(1)
@@ -388,12 +399,19 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
     # Path normalization for file tools
     if "path" in args and isinstance(args["path"], str):
         p = args["path"].replace("\\", "/").strip()
-        if p in ["page.tsx", "layout.tsx", "globals.css"]:
-            p = f"projects/websites/spectra/src/app/{p}"
-        elif p.startswith("src/app/") or p.startswith("src/"):
-            p = f"projects/websites/spectra/{p}"
-        elif p.startswith("D:/Software/Hermes Workspace/"):
+        if p.startswith("D:/Software/Hermes Workspace/"):
             p = p[len("D:/Software/Hermes Workspace/"):]
+        if "spectra" in user_prompt.lower():
+            if p in ["page.tsx", "layout.tsx", "globals.css"]:
+                p = f"projects/websites/spectra/src/app/{p}"
+            elif p.startswith("src/app/") or p.startswith("src/"):
+                p = f"projects/websites/spectra/{p}"
+        else:
+            m_target = re.search(r"(projects/[a-zA-Z0-9_\-]+(?:/[a-zA-Z0-9_\-]+)?)", user_prompt)
+            if m_target:
+                target_base = m_target.group(1).rstrip("/")
+                if not p.startswith("projects/") and not p.startswith("/") and not (len(p) > 2 and p[1] == ":"):
+                    p = f"{target_base}/{p}"
         args["path"] = p
 
     return args
