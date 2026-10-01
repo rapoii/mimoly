@@ -412,6 +412,9 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
                 target_base = m_target.group(1).rstrip("/")
                 if not p.startswith("projects/") and not p.startswith("/") and not (len(p) > 2 and p[1] == ":"):
                     p = f"{target_base}/{p}"
+        # Ensure path under projects/ is absolute to prevent terminal CWD double-prefixing
+        if p.startswith("projects/"):
+            p = f"D:/Software/Hermes Workspace/{p}"
         args["path"] = p
 
     return args
