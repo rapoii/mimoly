@@ -59,6 +59,19 @@ def safe_json_loads(text: str, default=None):
         return default
 
 
+def normalize_upstream_frame(parsed: Any) -> Optional[Dict[str, Any]]:
+    """Return the upstream SSE frame as a dict, or None when it carries no
+    chat-completion data.
+
+    Xiaomi's upstream mixes frame shapes on the same stream: normal content
+    frames (``{"type":"text","content":...}``), usage frames (``{"promptTokens":...}``),
+    and internal web-search payloads that arrive as a JSON *array*
+    (``[{"id":..,"text":"# Historical weather .."}]``). The latter must be ignored
+    instead of crashing the reader with ``'list' object has no attribute 'get'``.
+    """
+    return parsed if isinstance(parsed, dict) else None
+
+
 def sanitize_observation(output: str, max_chars: int = 2000) -> str:
     """Truncate tool observations head/tail to keep context lean and prevent refusal."""
     if not output or len(output) <= max_chars:
@@ -878,6 +891,12 @@ async def chat_completions(request: Request):
                                         parsed = json.loads(data_str)
                                     except Exception:
                                         continue
+                                    # Ignore non-object frames (e.g. Xiaomi's internal
+                                    # web-search JSON array) instead of crashing with
+                                    # "'list' object has no attribute 'get'".
+                                    parsed = normalize_upstream_frame(parsed)
+                                    if parsed is None:
+                                        continue
 
                                     if parsed.get("content") == "[DONE]":
                                         break
@@ -1144,6 +1163,12 @@ async def chat_completions(request: Request):
                             try:
                                 parsed = json.loads(data_str)
                             except Exception:
+                                continue
+                            # Ignore non-object frames (e.g. Xiaomi's internal web-search
+                            # JSON array) instead of crashing with
+                            # "'list' object has no attribute 'get'".
+                            parsed = normalize_upstream_frame(parsed)
+                            if parsed is None:
                                 continue
                             if parsed.get("content") == "[DONE]":
                                 break
