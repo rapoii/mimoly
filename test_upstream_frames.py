@@ -117,6 +117,28 @@ def main():
     except Exception as e:  # noqa: BLE001
         check("integration request succeeded", False, f"raised {e!r}")
 
+    # --- Unit: tool observations with JSON must not leak unescaped `{"` ---
+    print("[unit] tool observation quote sanitisation")
+    try:
+        msgs = [
+            {"role": "system", "content": "You are an agent."},
+            {"role": "user", "content": "cari tool browser"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"function": {"name": "tool_search", "arguments": "{}"}}]},
+            {"role": "tool", "name": "tool_search",
+             "content": json.dumps({"results": [{"matches": ["mcp__playwright__browser_click"]}]})},
+        ]
+        prompt = m.build_agent_prompt(msgs, tools=[{
+            "type": "function",
+            "function": {"name": "tool_search", "description": "Search tools",
+                         "parameters": {"type": "object", "properties": {"queries": {"type": "string"}}}},
+        }], framework="default")
+        check("no unescaped `{\"` in prompt", '{"' not in prompt,
+              f"found at {prompt.find(chr(123)+chr(34))}")
+        check("observation still present", "mcp__playwright__browser_click" in prompt)
+    except Exception as e:  # noqa: BLE001
+        check("build_agent_prompt handled tool JSON", False, f"raised {e!r}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

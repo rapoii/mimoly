@@ -335,6 +335,12 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         elif role == "tool":
             tool_name = m.get("name", "tool")
             sanitized = sanitize_observation(content, max_chars=2000)
+            # Tool results routinely contain JSON, which is full of double quotes.
+            # Embedding that verbatim into this plain-text prompt leaves an
+            # unescaped `{"` sequence that the model cannot parse, so it retries
+            # the same tool until it burns its turn budget. Neutralise the quotes
+            # so the observation reads as plain text.
+            sanitized = sanitized.replace('"', "'")
             history.append(f"[Hasil {tool_name}]: {sanitized}")
 
     main_goal = user_goals[-1] if user_goals else ""
