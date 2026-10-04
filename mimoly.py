@@ -72,6 +72,47 @@ def normalize_upstream_frame(parsed: Any) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
+# Xiaomi MiMo Studio performs its own web retrieval for any prompt that contains
+# a literal URL and hands the result to the model as pre-fetched context. The
+# model then reads "the page is already available" and answers from that payload
+# instead of calling the client's browser tool -- so a user who pastes a link
+# gets a summary and no tool call, even though the toolset is loaded.
+#
+# The retrieval is triggered server-side on a recognisable URL, so we break the
+# literal form before sending the prompt upstream. Splitting on "." and "/" with
+# surrounding spaces leaves the URL perfectly readable to the model (which
+# reassembles it, and we measured it emits the CLEAN url when it calls the
+# tool), while the upstream injector no longer sees a URL to fetch.
+# Measured: raw URL 0/16 tool calls vs masked 15/16 across four page shapes.
+_URL_RE = re.compile(r'https?://[^\s<>"\')]+')
+
+
+def mask_urls_for_upstream(text: str) -> str:
+    """Defuse Xiaomi's server-side webSearch injector by spacing out URLs.
+
+    ``https://en.wikipedia.org/wiki/X`` -> ``https://en . wikipedia . org / wiki / X``
+    The scheme stays intact so the model still recognises it as a URL.
+    """
+    if not text or "http" not in text:
+        return text
+
+    def _mask(match: "re.Match[str]") -> str:
+        url = match.group(0)
+        m = re.match(r"(https?://)(.*)$", url, re.DOTALL)
+        if not m:
+            return url
+        scheme, rest = m.group(1), m.group(2)
+        # Trailing punctuation belongs to the sentence, not the URL.
+        trail = ""
+        while rest and rest[-1] in ".,;:!?":
+            trail = rest[-1] + trail
+            rest = rest[:-1]
+        rest = rest.replace(".", " . ").replace("/", " / ")
+        return f"{scheme}{rest}{trail}"
+
+    return _URL_RE.sub(_mask, text)
+
+
 def sanitize_observation(output: str, max_chars: int = 2000) -> str:
     """Truncate tool observations head/tail to keep context lean and prevent refusal."""
     if not output or len(output) <= max_chars:
@@ -323,6 +364,10 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             clean_c = re.sub(r"<EXTREMELY_IMPORTANT>[\s\S]*?</EXTREMELY_IMPORTANT>", "", content).strip()
             clean_c = re.sub(r"<SUBAGENT-STOP>[\s\S]*?$", "", clean_c).strip()
             clean_c = clean_c if clean_c else content
+            # Defuse Xiaomi's server-side webSearch injector: a literal URL in the
+            # prompt makes upstream pre-fetch the page and answer from it instead
+            # of letting the model call the browser tool. See mask_urls_for_upstream.
+            clean_c = mask_urls_for_upstream(clean_c)
             user_goals.append(clean_c)
             history.append(f"[User]: {clean_c}")
         elif role == "assistant":

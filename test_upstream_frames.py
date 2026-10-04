@@ -139,6 +139,44 @@ def main():
     except Exception as e:  # noqa: BLE001
         check("build_agent_prompt handled tool JSON", False, f"raised {e!r}")
 
+    # --- Unit: URL masking must defuse Xiaomi's server-side webSearch injector ---
+    print("[unit] URL masking for upstream (webSearch injection guard)")
+    mask = getattr(m, "mask_urls_for_upstream", None)
+    check("mask_urls_for_upstream exists", mask is not None,
+          "(missing -> URL masking not implemented)")
+    if mask is not None:
+        raw = "Buka https://en.wikipedia.org/wiki/Xiaomi lalu ringkas."
+        masked = mask(raw)
+        # The literal URL must no longer be present verbatim ...
+        check("literal URL removed", "https://en.wikipedia.org/wiki/Xiaomi" not in masked,
+              f"got {masked!r}")
+        # ... but the pieces must still be readable and reassemble to the original.
+        check("reassembles to original URL",
+              masked.replace(" . ", ".").replace(" / ", "/")
+              .split("Buka ")[1].split(" lalu")[0] == "https://en.wikipedia.org/wiki/Xiaomi",
+              f"got {masked!r}")
+        check("scheme kept intact", masked.startswith("Buka https://"), f"got {masked!r}")
+        # Text without a URL is untouched.
+        check("plain text untouched", mask("Halo, apa kabar?") == "Halo, apa kabar?")
+        # Tool observations (already-fetched URLs the model may re-use) untouched.
+        check("non-http text untouched", mask("lihat example.com saja") == "lihat example.com saja")
+
+    # --- Unit: masking applied inside build_agent_prompt user turns ---
+    print("[unit] build_agent_prompt masks user URLs")
+    if mask is not None:
+        msgs = [
+            {"role": "system", "content": "You are an agent."},
+            {"role": "user", "content": "Buka https://example.com lalu ringkas."},
+        ]
+        prompt = m.build_agent_prompt(msgs, tools=[{
+            "type": "function",
+            "function": {"name": "browser_navigate", "description": "Navigate",
+                         "parameters": {"type": "object", "properties": {"url": {"type": "string"}}}},
+        }], framework="default")
+        check("user URL masked in built prompt", "https://example.com" not in prompt,
+              f"found literal URL in prompt")
+        check("masked URL still readable", "example . com" in prompt)
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
