@@ -166,6 +166,76 @@ Resolution order: `X-Agent-Framework` header > body `agent_framework` > `MIMOLY_
 
 ---
 
+## 🩺 Troubleshooting: search & fetch via MCP playwright
+
+Mimoly itself has no search tool. When Hermes runs with an MCP browser server
+(e.g. `-t terminal,playwright`), two upstream/Hermes quirks can make it look like
+mimoly is broken. Neither is.
+
+### 1. A pasted link produced a summary instead of a tool call (fixed in the proxy)
+
+Xiaomi MiMo Studio performs its **own** web retrieval whenever the prompt
+contains a literal URL, then hands the page to the model as pre-fetched context.
+The model reads "the page is already available" and answers from that payload
+without ever calling `browser_navigate` — so a user who pastes a link gets a
+summary and no tool call, even with a healthy toolset.
+
+`webSearchStatus: "disabled"` in the upstream `modelConfig` does **not** suppress
+it, and the retrieval happens server-side before generation, so there is no frame
+to strip in the parser. Mimoly therefore defuses it at the source: user-turn URLs
+are spaced out before the prompt goes upstream
+(`https://en . wikipedia . org / wiki / Xiaomi`). The injector no longer
+recognises a URL, while the model reads it fine and emits the **clean** url in the
+tool call. No configuration needed — it is automatic.
+
+Measured: raw URL `0/16` tool calls → masked `15/16`; end-to-end through Hermes
+with a pasted link `0/6` → `6/6`.
+
+### 2. `⚠️ Unknown toolset: playwright` and only `terminal` loaded
+
+Hermes validates `-t terminal,playwright` against the toolset registry *before*
+`wait_for_mcp_discovery()` returns. If the agent is built ahead of discovery
+(~3 s for a warm `npx @playwright/mcp`), the toolset resolves to nothing, the
+agent is built text-only, and the model honestly reports "no browser tools".
+
+It is intermittent, so one green run proves nothing — score a pass **rate**. The
+one-shot bound is `mcp_single_query_discovery_timeout` (default 15 s); raise it:
+
+```bash
+hermes config set mcp_single_query_discovery_timeout 45
+```
+
+A/B in the real CLI: bound `0.3` → 3/3 runs with `Unknown toolset` and 2 tools;
+bound `45` → 3/3 runs with no warning and 26 tools. Leave
+`mcp_discovery_timeout` (interactive, default 1.5 s) alone — an interactive
+session recovers a late server on the next turn; a one-shot run has no second
+turn, which is why only the single-query key needs room.
+
+### 3. Search engines: prefer server-rendered pages
+
+Bing/Google result pages render their list with JavaScript, so an accessibility
+snapshot shows only chrome ("Short videos", "Related searches") and the model has
+nothing to cite. Use Bing's RSS form or a static page:
+
+```
+https://www.bing.com/search?q=<query>&format=rss
+```
+
+DuckDuckGo may be unreachable from some networks (20 s timeout); Bing/Google
+answer normally.
+
+### 4. Verify with the event stream, not the prose
+
+The final answer can claim "no browser tools available" while the run actually
+worked. Use `--format stream-json` and count `tool_use` events — that is the
+ground truth. A ready-made harness lives in the repo:
+
+```bash
+.venv/Scripts/python.exe search_fetch_e2e.py --trials 3
+```
+
+---
+
 ## ⚖️ License & Disclaimer
 
 MIT License. This project is intended for developer personal research, educational experiments, and interoperability testing. Not affiliated with or endorsed by Xiaomi Inc.
