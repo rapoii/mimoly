@@ -255,6 +255,41 @@ def main():
               and isinstance(calls[0]["arguments"].get("queries"), list))
         check("extracted queries is a list", ok, f"got {calls!r}")
 
+    # ------------------------------------------------------------------
+    # [unit] _STATS global + /v1/stats endpoint
+    # ------------------------------------------------------------------
+    print("[unit] stats tracking")
+
+    # Reset stats for deterministic test
+    m._STATS["requests"] = 0
+    m._STATS["errors"] = 0
+    m._STATS["tool_calls"] = 0
+    m._STATS["coerced_args"] = 0
+    m._STATS["tool_usage"] = {}
+    m._STATS["model_usage"] = {}
+
+    check("_STATS exists", hasattr(m, "_STATS"), "missing global")
+    check("_START_TIME exists", hasattr(m, "_START_TIME"), "missing global")
+    check("_STATS keys complete",
+          all(k in m._STATS for k in ("requests", "errors", "tool_calls",
+                                       "coerced_args", "tool_usage", "model_usage")),
+          f"got {list(m._STATS)}")
+
+    # coerce_tool_args should increment coerced_args when it repairs
+    bad_args = {"queries": '["a","b"]'}
+    schema_tools = [{"type": "function", "function": {"name": "tool_search",
+        "parameters": {"type": "object", "properties": {
+            "queries": {"type": "array", "items": {"type": "string"}}}}}}]
+    m.coerce_tool_args("tool_search", bad_args, schema_tools)
+    check("coerced_args incremented", m._STATS["coerced_args"] == 1,
+          f"got {m._STATS['coerced_args']}")
+
+    # no-op coercion should NOT increment
+    good_args = {"queries": ["a", "b"]}
+    m.coerce_tool_args("tool_search", good_args, schema_tools)
+    check("coerced_args unchanged for valid args", m._STATS["coerced_args"] == 1,
+          f"got {m._STATS['coerced_args']}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

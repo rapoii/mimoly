@@ -173,6 +173,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# In-memory stats (reset on restart)
+# ---------------------------------------------------------------------------
+_START_TIME = time.time()
+_STATS = {
+    "requests": 0,
+    "errors": 0,
+    "tool_calls": 0,
+    "coerced_args": 0,
+    "tool_usage": {},        # {tool_name: count}
+    "model_usage": {},       # {model_id: count}
+}
+
 
 def get_session_cookies() -> Dict[str, str]:
     """Load and sanitize cookies from session.json, stripping surrounding double-quotes."""
@@ -456,6 +469,7 @@ def coerce_tool_args(name: str, args: dict, available_tools: Optional[List[Dict[
     if not isinstance(args, dict) or not available_tools:
         return args
 
+    snapshot = repr(args)  # cheap before-snapshot for coercion detection
     schema = None
     for t in available_tools:
         fn = t.get("function") or {}
@@ -499,6 +513,8 @@ def coerce_tool_args(name: str, args: dict, available_tools: Optional[List[Dict[
                                 if alt in element:
                                     element[want_key] = element.pop(alt)
                                     break
+    if repr(args) != snapshot:
+        _STATS["coerced_args"] += 1
     return args
 
 
@@ -778,6 +794,20 @@ async def health():
     }
 
 
+@app.get("/v1/stats")
+async def stats():
+    top_tools = sorted(_STATS["tool_usage"].items(), key=lambda x: -x[1])
+    return {
+        "uptime_seconds": round(time.time() - _START_TIME, 1),
+        "requests": _STATS["requests"],
+        "errors": _STATS["errors"],
+        "tool_calls": _STATS["tool_calls"],
+        "coerced_args": _STATS["coerced_args"],
+        "tool_usage": dict(top_tools[:20]),
+        "model_usage": _STATS["model_usage"],
+    }
+
+
 @app.get("/v1/models")
 @app.get("/models")
 @app.get("/api/v1/models")
@@ -887,6 +917,10 @@ async def chat_completions(request: Request):
 
     print(f"[mimoly] Incoming request: model={model} -> {target_upstream_model}, stream={stream}, messages={len(messages)}, tools={len(tools) if tools else 0}, thinking={thinking_enabled}, rata_kanan={is_rata_kanan}")
 
+    # Stats: request + model
+    _STATS["requests"] += 1
+    _STATS["model_usage"][model] = _STATS["model_usage"].get(model, 0) + 1
+
     # Cap thinking + answer output via max_completion_tokens if not set by caller
     # (prevents unbounded thinking bloat - research shows MiMo can produce 25-30k thinking tokens without cap)
     if not body.get("max_completion_tokens") and not body.get("max_tokens"):
@@ -902,6 +936,7 @@ async def chat_completions(request: Request):
     try:
         cookies = get_session_cookies()
     except Exception as e:
+        _STATS["errors"] += 1
         return JSONResponse({"error": str(e)}, status_code=401)
 
     # Format unified prompt (with per-framework tool template)
@@ -1174,6 +1209,10 @@ async def chat_completions(request: Request):
             if tools:
                 raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
                 if raw_calls:
+                    _STATS["tool_calls"] += len(raw_calls)
+                    for tc in raw_calls:
+                        tn = tc.get("name", "?")
+                        _STATS["tool_usage"][tn] = _STATS["tool_usage"].get(tn, 0) + 1
                     openai_tool_calls = []
                     for i, tc in enumerate(raw_calls):
                         raw_args = tc.get("arguments", {})
@@ -1342,6 +1381,7 @@ async def chat_completions(request: Request):
                 await asyncio.sleep(2.0)
 
     except Exception as e:
+        _STATS["errors"] += 1
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
 
     full_reply = "".join(accumulated_chunks)
@@ -1364,7 +1404,10 @@ async def chat_completions(request: Request):
 
     if raw_calls:
         finish_reason = "tool_calls"
+        _STATS["tool_calls"] += len(raw_calls)
         for i, tc in enumerate(raw_calls):
+            tn = tc.get("name", "?")
+            _STATS["tool_usage"][tn] = _STATS["tool_usage"].get(tn, 0) + 1
             raw_args = tc.get("arguments", {})
             args_str = json.dumps(raw_args) if isinstance(raw_args, dict) else str(raw_args)
             openai_tool_calls.append({
@@ -1410,6 +1453,7 @@ def cmd_serve(args):
     print(f"[mimoly] Zero Chrome processes, zero CDP overhead.")
     print(f"[mimoly] Endpoints:")
     print(f"  - Health:     http://{args.host}:{args.port}/health")
+    print(f"  - Stats:      http://{args.host}:{args.port}/v1/stats")
     print(f"  - Models:     http://{args.host}:{args.port}/v1/models")
     print(f"  - Chat:       http://{args.host}:{args.port}/v1/chat/completions")
     
