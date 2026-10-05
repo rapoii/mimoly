@@ -84,8 +84,10 @@ curl http://127.0.0.1:8080/health
 
 ### 📊 Live Dashboard & Stats
 
-A zero-dependency, auto-refreshing dashboard is served at `/dashboard`
-(refreshes every 2s, no build step, no external assets):
+A single-file, auto-refreshing dashboard is served at `/dashboard`
+(refreshes every 2s, no build step). It uses a **neobrutalism** visual theme
+(thick ink borders, hard offset shadows, flat high-contrast colors) and renders
+live charts via **Chart.js** (loaded from CDN, with a graceful offline fallback):
 
 ```bash
 # Open in browser
@@ -95,6 +97,9 @@ open  http://127.0.0.1:8080/dashboard     # macOS
 # Raw JSON (same data)
 curl http://127.0.0.1:8080/v1/stats
 ```
+
+**Charts:** finish-reason doughnut, token-split doughnut (input/output/reasoning),
+tool-usage bars, tokens-per-model bars, and a dual-axis activity timeline (last 60 min).
 
 Tracked metrics (all in-memory, reset on restart):
 
@@ -108,6 +113,10 @@ Tracked metrics (all in-memory, reset on restart):
 | `tokens.completion_tokens` | cumulative **output** tokens |
 | `tokens.total_tokens` | cumulative input + output |
 | `tokens.reasoning_tokens` | reasoning ("thinking") tokens |
+| `finish_reasons` | how requests ended (`stop` / `tool_calls` / `error`) |
+| `latency` | end-to-end latency `{count, avg_ms, min_ms, max_ms}` |
+| `ttft` | time-to-first-token for streaming `{count, avg_ms, min_ms, max_ms}` |
+| `timeline` | per-minute buckets of `{requests, errors, tool_calls, total_tokens}` |
 | `tool_usage` | per-tool call counts (top 20) |
 | `model_tokens` | per-model token breakdown |
 

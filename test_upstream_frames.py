@@ -417,6 +417,82 @@ def main():
           any(getattr(r, "path", "") == "/dashboard" for r in m.app.routes),
           "route not found")
 
+    # ------------------------------------------------------------------
+    # [unit] analytics: latency, finish_reasons, timeline
+    # ------------------------------------------------------------------
+    print("[unit] analytics tracking")
+
+    check("analytics keys present",
+          all(k in m._STATS for k in ("finish_reasons", "latency_ms", "ttft_ms", "timeline")),
+          f"got {list(m._STATS)}")
+    check("latency helper exists", hasattr(m, "_record_latency"), "missing")
+    check("finish_reason helper exists", hasattr(m, "_record_finish_reason"), "missing")
+    check("timeline helper exists", hasattr(m, "_record_timeline"), "missing")
+
+    # _record_latency accumulates min/max/avg correctly
+    m._STATS["latency_ms"] = {"count": 0, "sum": 0.0, "min": None, "max": None}
+    m._record_latency("latency_ms", 100.0)
+    m._record_latency("latency_ms", 300.0)
+    m._record_latency("latency_ms", 200.0)
+    lb = m._STATS["latency_ms"]
+    check("latency count", lb["count"] == 3, f"got {lb}")
+    check("latency sum", lb["sum"] == 600.0, f"got {lb}")
+    check("latency min", lb["min"] == 100.0, f"got {lb}")
+    check("latency max", lb["max"] == 300.0, f"got {lb}")
+
+    # _record_finish_reason counts per reason
+    m._STATS["finish_reasons"] = {}
+    m._record_finish_reason("stop")
+    m._record_finish_reason("stop")
+    m._record_finish_reason("tool_calls")
+    m._record_finish_reason("")   # empty ignored
+    check("finish_reasons counted",
+          m._STATS["finish_reasons"] == {"stop": 2, "tool_calls": 1},
+          f"got {m._STATS['finish_reasons']}")
+
+    # _record_timeline buckets by minute + accumulates
+    m._STATS["timeline"] = {}
+    m._record_timeline(requests=1, total_tokens=10)
+    m._record_timeline(requests=2, tool_calls=1, total_tokens=5)
+    m._record_timeline(errors=1)
+    tl = m._STATS["timeline"]
+    check("timeline single minute bucket", len(tl) == 1, f"got {len(tl)} buckets")
+    bucket = list(tl.values())[0]
+    check("timeline requests accumulated", bucket["requests"] == 3, f"got {bucket}")
+    check("timeline tokens accumulated", bucket["total_tokens"] == 15, f"got {bucket}")
+    check("timeline tool_calls accumulated", bucket["tool_calls"] == 1, f"got {bucket}")
+    check("timeline errors accumulated", bucket["errors"] == 1, f"got {bucket}")
+
+    # _record_usage also feeds the timeline
+    m._STATS["timeline"] = {}
+    m._record_usage({"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}, "m")
+    check("usage feeds timeline tokens",
+          list(m._STATS["timeline"].values())[0]["total_tokens"] == 10,
+          f"got {m._STATS['timeline']}")
+
+    # /v1/stats endpoint exposes the new analytics fields
+    import asyncio as _asyncio
+    _stats_resp = _asyncio.run(m.stats())
+    check("stats exposes finish_reasons", "finish_reasons" in _stats_resp, f"keys={list(_stats_resp)}")
+    check("stats exposes latency summary",
+          "latency" in _stats_resp and "avg_ms" in _stats_resp["latency"], f"got {_stats_resp.get('latency')}")
+    check("stats exposes ttft summary", "ttft" in _stats_resp, f"keys={list(_stats_resp)}")
+    check("stats exposes timeline list",
+          isinstance(_stats_resp.get("timeline"), list), f"got {type(_stats_resp.get('timeline'))}")
+
+    # ------------------------------------------------------------------
+    # [unit] dashboard: neobrutalism + charts
+    # ------------------------------------------------------------------
+    print("[unit] dashboard neobrutalism + charts")
+    _dash = getattr(m, "_DASHBOARD_HTML", "")
+    check("dashboard loads Chart.js", "chart.js" in _dash.lower(), "no chart lib")
+    check("dashboard has timeline canvas", "c-timeline" in _dash, "missing timeline chart")
+    check("dashboard has finish-reasons chart", "c-finish" in _dash, "missing finish chart")
+    check("dashboard has token-split chart", "c-tokens" in _dash, "missing token chart")
+    check("dashboard uses neobrutalism hard shadow", "6px 6px 0" in _dash, "no hard shadow")
+    check("dashboard has thick ink borders", "3px solid" in _dash, "no thick border")
+    check("dashboard offline fallback", "offline-note" in _dash, "no fallback")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

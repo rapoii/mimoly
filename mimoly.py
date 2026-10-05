@@ -190,7 +190,44 @@ _STATS = {
     "tool_usage": {},        # {tool_name: count}
     "model_usage": {},       # {model_id: count}
     "model_tokens": {},      # {model_id: {prompt_tokens, completion_tokens, total_tokens}}
+    "finish_reasons": {},    # {stop|tool_calls|length|error: count}
+    "latency_ms": {"count": 0, "sum": 0.0, "min": None, "max": None},
+    "ttft_ms": {"count": 0, "sum": 0.0, "min": None, "max": None},  # time to first token (stream)
+    "timeline": {},          # {minute_epoch: {requests, errors, tool_calls, total_tokens}}
 }
+
+
+def _record_latency(bucket: str, ms: float) -> None:
+    """Accumulate a latency sample into min/max/sum/count."""
+    b = _STATS[bucket]
+    b["count"] += 1
+    b["sum"] += ms
+    b["min"] = ms if b["min"] is None else min(b["min"], ms)
+    b["max"] = ms if b["max"] is None else max(b["max"], ms)
+
+
+def _record_finish_reason(reason: str) -> None:
+    """Count how each request finished (stop / tool_calls / length / error)."""
+    if not reason:
+        return
+    _STATS["finish_reasons"][reason] = _STATS["finish_reasons"].get(reason, 0) + 1
+
+
+def _record_timeline(requests: int = 0, errors: int = 0,
+                     tool_calls: int = 0, total_tokens: int = 0) -> None:
+    """Bucket activity by wall-clock minute (keeps the last ~2h for the line chart)."""
+    minute = int(time.time() // 60) * 60
+    tl = _STATS["timeline"]
+    bucket = tl.setdefault(
+        minute, {"requests": 0, "errors": 0, "tool_calls": 0, "total_tokens": 0}
+    )
+    bucket["requests"] += requests
+    bucket["errors"] += errors
+    bucket["tool_calls"] += tool_calls
+    bucket["total_tokens"] += total_tokens
+    if len(tl) > 120:  # prune oldest beyond 120 minutes
+        for k in sorted(tl.keys())[:-120]:
+            del tl[k]
 
 
 def _record_usage(usage: Dict[str, Any], model: str = "") -> None:
@@ -203,6 +240,7 @@ def _record_usage(usage: Dict[str, Any], model: str = "") -> None:
     _STATS["completion_tokens"] += ct
     _STATS["total_tokens"] += tt
     _STATS["reasoning_tokens"] += rt
+    _record_timeline(total_tokens=tt)
     if model:
         mt = _STATS["model_tokens"].setdefault(
             model, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -925,6 +963,24 @@ async def health():
 @app.get("/v1/stats")
 async def stats():
     top_tools = sorted(_STATS["tool_usage"].items(), key=lambda x: -x[1])
+
+    def _lat_summary(bucket):
+        b = _STATS[bucket]
+        n = b["count"]
+        return {
+            "count": n,
+            "avg_ms": round(b["sum"] / n, 1) if n else 0.0,
+            "min_ms": round(b["min"], 1) if b["min"] is not None else 0.0,
+            "max_ms": round(b["max"], 1) if b["max"] is not None else 0.0,
+        }
+
+    # Timeline -> sorted list for the line chart (last 60 minutes)
+    tl = _STATS["timeline"]
+    timeline = [
+        {"minute": m, **tl[m]}
+        for m in sorted(tl.keys())[-60:]
+    ]
+
     return {
         "uptime_seconds": round(time.time() - _START_TIME, 1),
         "requests": _STATS["requests"],
@@ -938,6 +994,10 @@ async def stats():
             "total_tokens": _STATS["total_tokens"],
             "reasoning_tokens": _STATS["reasoning_tokens"],
         },
+        "finish_reasons": dict(_STATS["finish_reasons"]),
+        "latency": _lat_summary("latency_ms"),
+        "ttft": _lat_summary("ttft_ms"),
+        "timeline": timeline,
         "tool_usage": dict(top_tools[:20]),
         "model_usage": _STATS["model_usage"],
         "model_tokens": _STATS["model_tokens"],
@@ -955,280 +1015,365 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mimoly dashboard</title>
+<title>mimoly · dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// Fallback CDN: if jsdelivr failed, try a second mirror before charts init.
+if (typeof Chart === 'undefined') {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"><\/script>');
+}
+</script>
 <style>
   :root {
-    --bg: #0a0e14; --surface: #12171e; --card: #161c24; --bd: #252d38;
-    --fg: #d1d9e6; --fg2: #e8edf4; --mut: #6b7a8d;
-    --acc: #4d9eff; --grn: #34d058; --red: #ea4a5a; --yel: #e3b341;
-    --radius: 12px;
+    --bg:#FDF6E3; --ink:#0A0A0A; --paper:#FFFFFF;
+    --yellow:#FFD23F; --cyan:#3DDBD9; --pink:#FF6BAA; --orange:#FF8A3D;
+    --green:#7BE495; --blue:#6FA8FF; --purple:#B48CFF; --red:#FF5C5C;
+    --bd:3px solid var(--ink); --sh:6px 6px 0 var(--ink);
   }
-  * { box-sizing: border-box; margin: 0; }
+  * { box-sizing:border-box; margin:0; padding:0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg); color: var(--fg); min-height: 100vh;
+    font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+    background:var(--bg); color:var(--ink);
+    padding:26px 22px 60px;
+    background-image:radial-gradient(rgba(10,10,10,.10) 1.4px, transparent 1.4px);
+    background-size:22px 22px;
+    -webkit-font-smoothing:antialiased;
   }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 48px; }
+  .wrap { max-width:1180px; margin:0 auto; }
 
-  /* ── Header ── */
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  header h1 { font-size: 20px; font-weight: 700; color: var(--fg2); letter-spacing: -.3px; }
-  .badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
-    padding: 3px 10px; border-radius: 20px;
-    background: rgba(52,208,88,.12); color: var(--grn);
-    transition: all .3s;
+  /* ── Top bar ── */
+  .topbar {
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    background:var(--yellow); border:var(--bd); box-shadow:var(--sh);
+    padding:16px 20px; margin-bottom:26px;
   }
-  .badge.off { background: rgba(234,74,90,.12); color: var(--red); }
-  .badge i {
-    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  .topbar h1 {
+    font-size:30px; font-weight:900; letter-spacing:-1px; line-height:1;
   }
-  .badge.on i { animation: pulse 2s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-  .meta { color: var(--mut); font-size: 12px; margin-bottom: 24px; }
+  .topbar .sub { font-weight:700; font-size:13px; opacity:.72; }
+  .spacer { flex:1; }
+  .pill {
+    display:inline-flex; align-items:center; gap:8px;
+    font-weight:900; font-size:12px; letter-spacing:.5px; text-transform:uppercase;
+    background:var(--paper); border:var(--bd); padding:7px 14px;
+  }
+  .pill .dot { width:10px; height:10px; background:var(--red); border:2px solid var(--ink); }
+  .pill.live .dot { background:var(--green); animation:blink 1.4s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .clock { font-weight:900; font-size:13px; }
 
-  /* ── Section groups ── */
-  .section { margin-bottom: 20px; }
-  .section-title {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .8px; color: var(--mut); margin-bottom: 8px;
-    padding-left: 2px;
+  /* ── Section label ── */
+  .label {
+    display:inline-block; font-weight:900; font-size:13px; letter-spacing:1.2px;
+    text-transform:uppercase; background:var(--ink); color:var(--paper);
+    padding:6px 14px; margin:4px 0 16px;
   }
 
-  /* ── Card grid ── */
-  .g3 { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
-  .g4 { display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); }
-  .g2 { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
-  @media (max-width: 640px) { .g3,.g4 { grid-template-columns: repeat(2,1fr); } }
-  @media (max-width: 400px) { .g3,.g4,.g2 { grid-template-columns: 1fr; } }
+  /* ── Grids ── */
+  .grid { display:grid; gap:18px; }
+  .stat-grid { grid-template-columns:repeat(5,1fr); margin-bottom:32px; }
+  .chart-grid { grid-template-columns:repeat(2,1fr); margin-bottom:32px; }
+  .wide { grid-column:1 / -1; }
+  @media (max-width:1000px){ .stat-grid{grid-template-columns:repeat(3,1fr);} }
+  @media (max-width:760px){ .stat-grid{grid-template-columns:repeat(2,1fr);} .chart-grid{grid-template-columns:1fr;} }
+  @media (max-width:440px){ .stat-grid{grid-template-columns:1fr;} }
 
-  .card {
-    background: var(--card); border: 1px solid var(--bd);
-    border-radius: var(--radius); padding: 16px 18px;
-    display: flex; flex-direction: column; gap: 2px;
-    transition: border-color .2s;
+  /* ── Stat card ── */
+  .stat {
+    background:var(--paper); border:var(--bd); box-shadow:var(--sh);
+    padding:16px 16px 14px; position:relative; overflow:hidden;
   }
-  .card:hover { border-color: #3a4555; }
-  .card .label {
-    font-size: 11px; font-weight: 500; text-transform: uppercase;
-    letter-spacing: .5px; color: var(--mut);
+  .stat .k {
+    font-weight:900; font-size:11px; letter-spacing:1px; text-transform:uppercase;
+    margin-bottom:8px; display:flex; align-items:center; gap:7px;
   }
-  .card .val {
-    font-size: 28px; font-weight: 700; letter-spacing: -.5px;
-    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-    font-variant-numeric: tabular-nums;
-    color: var(--fg2); line-height: 1.2;
+  .stat .k::before { content:''; width:11px; height:11px; background:var(--accent,var(--ink)); border:2px solid var(--ink); }
+  .stat .v {
+    font-weight:900; font-size:32px; line-height:1; letter-spacing:-1px;
+    font-variant-numeric:tabular-nums; word-break:break-all;
   }
-  .card .unit { font-size: 12px; color: var(--mut); margin-top: 1px; }
+  .stat .u { font-weight:800; font-size:12px; opacity:.6; margin-top:5px; }
+  .stat.hot { background:var(--accent); }
 
-  /* Dynamic color: only light up when value > 0 */
-  .val[data-color="red"]    { color: var(--red); }
-  .val[data-color="yellow"] { color: var(--yel); }
-  .val[data-color="green"]  { color: var(--grn); }
-  .val[data-color="accent"] { color: var(--acc); }
-
-  /* ── Panels (tables) ── */
+  /* ── Panel (chart / table) ── */
   .panel {
-    background: var(--card); border: 1px solid var(--bd);
-    border-radius: var(--radius); padding: 16px 18px; margin-top: 0;
+    background:var(--paper); border:var(--bd); box-shadow:var(--sh);
+    padding:18px 18px 16px;
   }
-  .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .panel th {
-    text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .6px; color: var(--mut); padding: 0 0 8px;
-    border-bottom: 1px solid var(--bd);
+  .panel h3 {
+    font-weight:900; font-size:15px; text-transform:uppercase; letter-spacing:.6px;
+    margin-bottom:14px; display:flex; align-items:center; gap:9px;
   }
-  .panel th:last-child { text-align: right; }
-  .panel td { padding: 10px 0; border-bottom: 1px solid rgba(37,45,56,.5); }
-  .panel td:last-child { text-align: right; font-family: ui-monospace, monospace;
-    font-variant-numeric: tabular-nums; font-weight: 600; color: var(--fg2); }
-  .panel .bar-wrap {
-    height: 4px; background: var(--bd); border-radius: 2px;
-    overflow: hidden; margin-top: 4px;
+  .panel h3::before { content:''; width:14px; height:14px; background:var(--accent,var(--yellow)); border:2px solid var(--ink); }
+  .canvas-box { position:relative; height:250px; }
+  .canvas-box.tall { height:290px; }
+  .empty { font-weight:800; opacity:.45; padding:38px 0; text-align:center; font-size:14px; }
+
+  /* ── Table ── */
+  table { width:100%; border-collapse:collapse; }
+  th {
+    text-align:left; font-weight:900; font-size:11px; letter-spacing:.8px;
+    text-transform:uppercase; border-bottom:3px solid var(--ink); padding:0 0 9px;
   }
-  .panel .bar-fill { height: 100%; background: var(--acc); border-radius: 2px;
-    transition: width .4s ease; }
-  .panel .empty-state {
-    color: var(--mut); font-size: 13px; text-align: center;
-    padding: 20px 0;
-  }
+  th:last-child, td:last-child { text-align:right; }
+  td { padding:11px 0; border-bottom:2px solid rgba(10,10,10,.14); font-weight:700; font-size:14px; }
+  td:last-child { font-variant-numeric:tabular-nums; }
+  tr:last-child td { border-bottom:none; }
+  .track { height:9px; background:rgba(10,10,10,.10); border:2px solid var(--ink); margin-top:6px; }
+  .track > i { display:block; height:100%; background:var(--accent,var(--blue)); }
 
   /* ── Footer ── */
   .foot {
-    margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--bd);
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 11px; color: var(--mut);
+    margin-top:34px; display:flex; justify-content:space-between; align-items:center;
+    flex-wrap:wrap; gap:10px; font-weight:800; font-size:12px;
+    background:var(--paper); border:var(--bd); box-shadow:var(--sh); padding:12px 18px;
   }
-  .foot a { color: var(--acc); text-decoration: none; }
-  .foot a:hover { text-decoration: underline; }
+  .foot a { color:var(--ink); font-weight:900; }
+  .note { font-weight:800; font-size:12px; background:var(--orange); border:var(--bd); padding:8px 12px; margin-bottom:18px; display:none; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<header>
-  <h1>mimoly</h1>
-  <span class="badge" id="badge"><i></i><span id="badge-text">connecting</span></span>
-</header>
-<div class="meta" id="meta">waiting for first poll&hellip;</div>
+  <div class="topbar">
+    <h1>MIMOLY</h1>
+    <span class="sub">web2api · live dashboard</span>
+    <span class="spacer"></span>
+    <span class="pill" id="status"><span class="dot"></span><span id="status-t">connecting</span></span>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
 
-<!-- ── Traffic ── -->
-<div class="section">
-  <div class="section-title">Traffic</div>
-  <div class="g3">
-    <div class="card">
-      <span class="label">Requests</span>
-      <span class="val" id="req">—</span>
+  <div class="note" id="offline-note">⚠ Charts unavailable (Chart.js CDN not reachable) — numbers below are still live.</div>
+
+  <span class="label">At a glance</span>
+  <div class="grid stat-grid" id="stats"></div>
+
+  <span class="label">Traffic &amp; latency</span>
+  <div class="grid stat-grid" id="latency"></div>
+
+  <span class="label">Charts</span>
+  <div class="grid chart-grid">
+    <div class="panel" style="--accent:var(--pink)">
+      <h3>Finish reasons</h3>
+      <div class="canvas-box"><canvas id="c-finish"></canvas></div>
     </div>
-    <div class="card">
-      <span class="label">Errors</span>
-      <span class="val" id="err">—</span>
+    <div class="panel" style="--accent:var(--cyan)">
+      <h3>Token split</h3>
+      <div class="canvas-box"><canvas id="c-tokens"></canvas></div>
     </div>
-    <div class="card">
-      <span class="label">Error rate</span>
-      <span class="val" id="erate">—</span>
+    <div class="panel" style="--accent:var(--orange)">
+      <h3>Tool usage</h3>
+      <div id="tool-table"><div class="empty">No tool calls yet</div></div>
+    </div>
+    <div class="panel" style="--accent:var(--purple)">
+      <h3>Tokens per model</h3>
+      <div id="model-table"><div class="empty">No model data yet</div></div>
+    </div>
+    <div class="panel wide" style="--accent:var(--green)">
+      <h3>Activity timeline (last 60 min)</h3>
+      <div class="canvas-box tall"><canvas id="c-timeline"></canvas></div>
     </div>
   </div>
-</div>
 
-<!-- ── Tool intelligence ── -->
-<div class="section">
-  <div class="section-title">Tool Intelligence</div>
-  <div class="g3">
-    <div class="card">
-      <span class="label">Tool calls</span>
-      <span class="val" id="tc">—</span>
-    </div>
-    <div class="card">
-      <span class="label">Coerced args</span>
-      <span class="val" id="co">—</span>
-    </div>
-    <div class="card">
-      <span class="label">Invalid args</span>
-      <span class="val" id="iv">—</span>
-    </div>
+  <div class="foot">
+    <span>mimoly web2api v3.0.0 · <a href="/v1/stats">raw json</a> · <a href="/health">health</a></span>
+    <span id="foot-meta">waiting for first poll…</span>
   </div>
-</div>
-
-<!-- ── Token usage ── -->
-<div class="section">
-  <div class="section-title">Token Usage</div>
-  <div class="g4">
-    <div class="card">
-      <span class="label">Input</span>
-      <span class="val" id="pt">—</span>
-    </div>
-    <div class="card">
-      <span class="label">Output</span>
-      <span class="val" id="ct">—</span>
-    </div>
-    <div class="card">
-      <span class="label">Total</span>
-      <span class="val" id="tt">—</span>
-    </div>
-    <div class="card">
-      <span class="label">Reasoning</span>
-      <span class="val" id="rt">—</span>
-    </div>
-  </div>
-</div>
-
-<!-- ── Breakdown tables ── -->
-<div class="section">
-  <div class="section-title">Breakdown</div>
-  <div class="g2">
-    <div class="panel" id="models"><div class="empty-state">No model data yet</div></div>
-    <div class="panel" id="tools"><div class="empty-state">No tool data yet</div></div>
-  </div>
-</div>
-
-<div class="foot">
-  <span>mimoly web2api &middot; <a href="/v1/stats">raw json</a></span>
-  <span id="foot-time"></span>
-</div>
-
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
-const fmt = n => n == null ? '—' : n.toLocaleString();
+const NB = ['#FFD23F','#3DDBD9','#FF6BAA','#FF8A3D','#7BE495','#6FA8FF','#B48CFF','#FF5C5C'];
+const fmt = n => (n == null ? '—' : Number(n).toLocaleString());
 
-function setVal(id, v, color, suffix) {
-  const el = $(id);
-  el.textContent = v == null ? '—' : fmt(v) + (suffix || '');
-  if (color && v > 0) el.setAttribute('data-color', color);
-  else el.removeAttribute('data-color');
+function statCard(accent, label, value, unit, hot) {
+  return '<div class="stat' + (hot ? ' hot' : '') + '" style="--accent:var(' + accent + ')">' +
+    '<div class="k">' + label + '</div>' +
+    '<div class="v">' + value + '</div>' +
+    (unit ? '<div class="u">' + unit + '</div>' : '') +
+  '</div>';
 }
 
-function buildTable(rows, nameLabel, countLabel) {
-  if (!rows.length) return '<div class="empty-state">No data yet</div>';
+function uptime(sec) {
+  sec = Math.floor(sec || 0);
+  const d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600),
+        m = Math.floor(sec%3600/60), s = sec%60;
+  if (d) return d + 'd ' + h + 'h';
+  if (h) return h + 'h ' + m + 'm';
+  if (m) return m + 'm ' + s + 's';
+  return s + 's';
+}
+
+function rowsTable(rows, nameLabel, countLabel, accent) {
+  if (!rows.length) return '<div class="empty">No data yet</div>';
   const max = Math.max(...rows.map(r => r[1]), 1);
   let h = '<table><tr><th>' + nameLabel + '</th><th>' + countLabel + '</th></tr>';
   for (const [name, val] of rows) {
-    const pct = Math.max(3, (val / max) * 100);
-    h += '<tr><td>' + name +
-      '<div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
-      '</td><td>' + fmt(val) + '</td></tr>';
+    h += '<tr><td>' + name + '<div class="track" style="--accent:var(' + accent + ')">' +
+      '<i style="width:' + Math.max(3, val/max*100) + '%"></i></div></td>' +
+      '<td>' + fmt(val) + '</td></tr>';
   }
   return h + '</table>';
 }
 
-function uptime(sec) {
-  if (!sec) return '0s';
-  const d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600),
-        m = Math.floor(sec%3600/60), s = Math.floor(sec%60);
-  if (d) return d + 'd ' + h + 'h';
-  if (h) return h + 'h ' + m + 'm';
-  return m + 'm ' + s + 's';
+// ── Chart.js global neobrutalism defaults ──
+let charts = {};
+const OK = typeof Chart !== 'undefined';
+if (OK) {
+  Chart.defaults.font.family = "'Segoe UI', system-ui, Arial, sans-serif";
+  Chart.defaults.font.weight = '800';
+  Chart.defaults.color = '#0A0A0A';
+  Chart.defaults.borderColor = '#0A0A0A';
+}
+
+function mkDoughnut(id) {
+  if (!OK) return null;
+  return new Chart($(id), {
+    type: 'doughnut',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: NB, borderColor: '#0A0A0A', borderWidth: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '56%',
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, boxHeight: 12, padding: 10, font: { weight: '800', size: 11 } } },
+        tooltip: { backgroundColor: '#0A0A0A', padding: 10, titleFont: { weight: '800' }, bodyFont: { weight: '700' } }
+      }
+    }
+  });
+}
+function mkBar(id, horizontal) {
+  if (!OK) return null;
+  return new Chart($(id), {
+    type: 'bar',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: NB, borderColor: '#0A0A0A', borderWidth: 3 }] },
+    options: {
+      indexAxis: horizontal ? 'y' : 'x',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#0A0A0A', padding: 10 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { weight: '800', size: 11 } }, border: { width: 3 } },
+        y: { grid: { color: 'rgba(10,10,10,.10)' }, ticks: { font: { weight: '800', size: 11 } }, border: { width: 3 } }
+      }
+    }
+  });
+}
+function mkLine(id) {
+  if (!OK) return null;
+  return new Chart($(id), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'requests', data: [], borderColor: '#0A0A0A', backgroundColor: '#FFD23F', borderWidth: 3, stepped: true, pointRadius: 4, pointStyle: 'rect', pointBackgroundColor: '#FFD23F', pointBorderColor: '#0A0A0A', pointBorderWidth: 2, yAxisID: 'y' },
+      { label: 'tokens', data: [], borderColor: '#0A0A0A', backgroundColor: '#3DDBD9', borderWidth: 3, tension: 0, pointRadius: 4, pointStyle: 'circle', pointBackgroundColor: '#3DDBD9', pointBorderColor: '#0A0A0A', pointBorderWidth: 2, yAxisID: 'y1' }
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      layout: { padding: { right: 10, left: 2, top: 4 } },
+      plugins: {
+        legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 12, boxHeight: 12, font: { weight: '800', size: 12 } } },
+        tooltip: { backgroundColor: '#0A0A0A', padding: 10 }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { weight: '800', size: 10 } }, border: { width: 3 } },
+        y: { position: 'left', grid: { color: 'rgba(10,10,10,.10)' }, grace: '12%', ticks: { font: { weight: '800', size: 10 }, precision: 0 }, border: { width: 3 } },
+        y1: { position: 'right', grid: { display: false }, grace: '12%', ticks: { font: { weight: '800', size: 10 } }, border: { width: 3 } }
+      }
+    }
+  });
+}
+
+function initCharts() {
+  if (!OK) { $('offline-note').style.display = 'block'; return; }
+  charts.finish = mkDoughnut('c-finish');
+  charts.tokens = mkDoughnut('c-tokens');
+  charts.timeline = mkLine('c-timeline');
 }
 
 let alive = false;
 async function tick() {
   try {
-    const s = await (await fetch('/v1/stats')).json();
-    if (!alive) {
-      alive = true;
-      $('badge').className = 'badge on';
-      $('badge-text').textContent = 'live';
-    }
-
-    setVal('req', s.requests, 'accent');
-    setVal('err', s.errors, 'red');
-    const rate = s.requests > 0 ? ((s.errors / s.requests) * 100) : 0;
-    setVal('erate', Math.round(rate * 10) / 10, rate > 5 ? 'red' : rate > 0 ? 'yellow' : null, '%');
-
-    setVal('tc', s.tool_calls);
-    setVal('co', s.coerced_args, 'yellow');
-    setVal('iv', s.invalid_args, 'red');
+    const s = await (await fetch('/v1/stats', { cache: 'no-store' })).json();
+    if (!alive) { alive = true; $('status').className = 'pill live'; $('status-t').textContent = 'live'; }
+    $('clock').textContent = new Date().toLocaleTimeString();
 
     const t = s.tokens || {};
-    setVal('pt', t.prompt_tokens);
-    setVal('ct', t.completion_tokens, 'green');
-    setVal('tt', t.total_tokens, 'accent');
-    setVal('rt', t.reasoning_tokens);
+    const l = s.latency || {}, tt = s.ttft || {};
+    const rate = s.requests > 0 ? (s.errors / s.requests * 100) : 0;
 
-    $('meta').textContent = 'up ' + uptime(s.uptime_seconds) +
-      ' \u00b7 ' + fmt(s.requests) + ' req \u00b7 ' + fmt(t.total_tokens) + ' tok';
+    $('stats').innerHTML =
+      statCard('--blue',   'Requests',    fmt(s.requests), 'total received') +
+      statCard('--red',    'Errors',      fmt(s.errors),   'failed requests', s.errors > 0) +
+      statCard('--orange', 'Error rate',  (Math.round(rate*10)/10) + '%', 'errors / requests') +
+      statCard('--yellow', 'Tool calls',  fmt(s.tool_calls), 'invoked tools') +
+      statCard('--cyan',   'Coerced',     fmt(s.coerced_args), 'args auto-repaired') +
+      statCard('--pink',   'Invalid args', fmt(s.invalid_args), 'schema mismatches', s.invalid_args > 0) +
+      statCard('--purple', 'Input tokens', fmt(t.prompt_tokens), 'prompt') +
+      statCard('--green',  'Output tokens', fmt(t.completion_tokens), 'completion') +
+      statCard('--blue',   'Total tokens', fmt(t.total_tokens), 'in + out') +
+      statCard('--orange', 'Reasoning',   fmt(t.reasoning_tokens), 'thinking tokens');
 
-    const mt = s.model_tokens || {};
-    const mRows = Object.entries(mt).map(([m, v]) => [m, v.total_tokens]);
-    $('models').innerHTML = buildTable(mRows, 'Model', 'Tokens');
-    $('tools').innerHTML  = buildTable(Object.entries(s.tool_usage || {}), 'Tool', 'Calls');
+    $('latency').innerHTML =
+      statCard('--yellow', 'Avg latency', l.avg_ms ? l.avg_ms + ' ms' : '—', l.count + ' samples') +
+      statCard('--cyan',   'Avg TTFT',    tt.avg_ms ? tt.avg_ms + ' ms' : '—', tt.count + (tt.count === 1 ? ' stream' : ' streams')) +
+      statCard('--green',  'Min latency', l.count ? l.min_ms + ' ms' : '—', 'fastest') +
+      statCard('--pink',   'Max latency', l.count ? l.max_ms + ' ms' : '—', 'slowest') +
+      statCard('--purple', 'Uptime', uptime(s.uptime_seconds), s.requests + ' req served');
 
-    $('foot-time').textContent = new Date().toLocaleTimeString();
+    // Doughnut: finish reasons
+    const fr = s.finish_reasons || {};
+    const frKeys = Object.keys(fr);
+    const frTotal = frKeys.reduce((a, k) => a + fr[k], 0);
+    const frLabels = frKeys.map(k => k + ': ' + fr[k] + (frTotal ? ' (' + Math.round(fr[k]/frTotal*100) + '%)' : ''));
+    const frData = frKeys.map(k => fr[k]);
+    if (charts.finish) {
+      charts.finish.data.labels = frKeys.length ? frLabels : ['no data'];
+      charts.finish.data.datasets[0].data = frKeys.length ? frData : [1];
+      charts.finish.data.datasets[0].backgroundColor = frKeys.length ? NB : ['#e6e6e6'];
+      charts.finish.update('none');
+    }
+    // Doughnut: token split
+    const splitVals = [t.prompt_tokens||0, t.completion_tokens||0, t.reasoning_tokens||0];
+    const splitNames = ['input', 'output', 'reasoning'];
+    const splitTotal = splitVals.reduce((a, b) => a + b, 0);
+    const hasSplit = splitVals.some(v => v > 0);
+    if (charts.tokens) {
+      charts.tokens.data.labels = hasSplit
+        ? splitNames.map((n, i) => n + ': ' + fmt(splitVals[i]) + (splitTotal ? ' (' + Math.round(splitVals[i]/splitTotal*100) + '%)' : ''))
+        : ['no data'];
+      charts.tokens.data.datasets[0].data = hasSplit ? splitVals : [1];
+      charts.tokens.data.datasets[0].backgroundColor = hasSplit ? [NB[5], NB[4], NB[2]] : ['#e6e6e6'];
+      charts.tokens.update('none');
+    }
+    // Timeline
+    const tl = s.timeline || [];
+    if (charts.timeline) {
+      charts.timeline.data.labels = tl.map(r => new Date(r.minute*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      charts.timeline.data.datasets[0].data = tl.map(r => r.requests);
+      charts.timeline.data.datasets[1].data = tl.map(r => r.total_tokens);
+      charts.timeline.update('none');
+    }
+
+    $('tool-table').innerHTML = rowsTable(
+      Object.entries(s.tool_usage || {}).sort((a,b) => b[1]-a[1]), 'Tool', 'Calls', '--orange');
+    $('model-table').innerHTML = rowsTable(
+      Object.entries(s.model_tokens || {}).map(([m,v]) => [m, v.total_tokens]).sort((a,b) => b[1]-a[1]),
+      'Model', 'Tokens', '--purple');
+
+    $('foot-meta').textContent = 'up ' + uptime(s.uptime_seconds) + ' · ' +
+      fmt(s.requests) + ' req · ' + fmt(t.total_tokens) + ' tokens · updated ' + new Date().toLocaleTimeString();
   } catch (e) {
     alive = false;
-    $('badge').className = 'badge off';
-    $('badge-text').textContent = 'offline';
-    $('meta').innerHTML = '<span style="color:var(--red)">connection lost</span>';
+    $('status').className = 'pill';
+    $('status-t').textContent = 'offline';
+    $('foot-meta').textContent = 'connection lost — retrying…';
   }
 }
+
+initCharts();
 tick();
 setInterval(tick, 2000);
 </script>
 </body>
-</html>"""
+</html>
+"""
 
 
 @app.get("/v1/models")
@@ -1343,6 +1488,8 @@ async def chat_completions(request: Request):
     # Stats: request + model
     _STATS["requests"] += 1
     _STATS["model_usage"][model] = _STATS["model_usage"].get(model, 0) + 1
+    _record_timeline(requests=1)
+    _req_start = time.time()
 
     # Cap thinking + answer output via max_completion_tokens if not set by caller
     # (prevents unbounded thinking bloat - research shows MiMo can produce 25-30k thinking tokens without cap)
@@ -1360,6 +1507,8 @@ async def chat_completions(request: Request):
         cookies = get_session_cookies()
     except Exception as e:
         _STATS["errors"] += 1
+        _record_timeline(errors=1)
+        _record_finish_reason("error")
         return JSONResponse({"error": str(e)}, status_code=401)
 
     # Format unified prompt (with per-framework tool template)
@@ -1453,6 +1602,8 @@ async def chat_completions(request: Request):
             accumulated_chunks = []
             usage_data = None
             in_thinking = False
+            _first_token_at = None
+            _finish_reason = "stop"
 
             try:
                 for attempt in range(3):
@@ -1473,6 +1624,9 @@ async def chat_completions(request: Request):
                                         }]
                                     }
                                     yield f"data: {json.dumps(err_chunk)}\n\n"
+                                    _STATS["errors"] += 1
+                                    _record_timeline(errors=1)
+                                    _record_finish_reason("error")
                                     yield "data: [DONE]\n\n"
                                     return
 
@@ -1524,6 +1678,11 @@ async def chat_completions(request: Request):
 
                                     if not content_piece:
                                         continue
+
+                                    # Time-to-first-token (stream): first real content chunk
+                                    if _first_token_at is None:
+                                        _first_token_at = time.time()
+                                        _record_latency("ttft_ms", (_first_token_at - _req_start) * 1000.0)
 
                                     if "<think>" in content_piece:
                                         in_thinking = True
@@ -1624,6 +1783,9 @@ async def chat_completions(request: Request):
                     }]
                 }
                 yield f"data: {json.dumps(err_chunk)}\n\n"
+                _STATS["errors"] += 1
+                _record_timeline(errors=1)
+                _record_finish_reason("error")
                 yield "data: [DONE]\n\n"
                 return
 
@@ -1634,6 +1796,8 @@ async def chat_completions(request: Request):
                 raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
                 if raw_calls:
                     _STATS["tool_calls"] += len(raw_calls)
+                    _record_timeline(tool_calls=len(raw_calls))
+                    _finish_reason = "tool_calls"
                     for tc in raw_calls:
                         tn = tc.get("name", "?")
                         _STATS["tool_usage"][tn] = _STATS["tool_usage"].get(tn, 0) + 1
@@ -1733,6 +1897,8 @@ async def chat_completions(request: Request):
                 }
                 yield f"data: {json.dumps(usage_chunk)}\n\n"
 
+            _record_latency("latency_ms", (time.time() - _req_start) * 1000.0)
+            _record_finish_reason(_finish_reason)
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -1807,6 +1973,8 @@ async def chat_completions(request: Request):
 
     except Exception as e:
         _STATS["errors"] += 1
+        _record_timeline(errors=1)
+        _record_finish_reason("error")
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
 
     full_reply = "".join(accumulated_chunks)
@@ -1830,6 +1998,7 @@ async def chat_completions(request: Request):
     if raw_calls:
         finish_reason = "tool_calls"
         _STATS["tool_calls"] += len(raw_calls)
+        _record_timeline(tool_calls=len(raw_calls))
         for i, tc in enumerate(raw_calls):
             tn = tc.get("name", "?")
             _STATS["tool_usage"][tn] = _STATS["tool_usage"].get(tn, 0) + 1
@@ -1843,6 +2012,9 @@ async def chat_completions(request: Request):
                     "arguments": args_str
                 }
             })
+
+    _record_latency("latency_ms", (time.time() - _req_start) * 1000.0)
+    _record_finish_reason(finish_reason)
 
     message_payload: Dict[str, Any] = {
         "role": "assistant",
