@@ -18,6 +18,7 @@ import tempfile
 import time
 import urllib.parse
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -248,6 +249,97 @@ def _record_usage(usage: Dict[str, Any], model: str = "") -> None:
         mt["prompt_tokens"] += pt
         mt["completion_tokens"] += ct
         mt["total_tokens"] += tt
+
+
+# ---------------------------------------------------------------------------
+# Per-request log (bounded ring buffer of the last N requests, newest last).
+# Shows WHAT was asked (input prompt) and WHAT came back (output), so the
+# dashboard is useful for debugging, not just aggregate counters.
+# ---------------------------------------------------------------------------
+_REQUEST_LOG_MAX = 50
+_REQUEST_LOG: "deque[Dict[str, Any]]" = deque(maxlen=_REQUEST_LOG_MAX)
+
+
+def _clip(text: Any, limit: int = 400) -> str:
+    """Coerce to str and truncate for display; marks truncation with an ellipsis."""
+    if text is None:
+        return ""
+    s = text if isinstance(text, str) else str(text)
+    s = s.strip()
+    if len(s) <= limit:
+        return s
+    return s[:limit].rstrip() + "…"
+
+
+def _last_user_text(messages: List[Dict[str, Any]]) -> str:
+    """Extract the last user message text (handles multimodal content lists)."""
+    for m in reversed(messages or []):
+        if m.get("role") != "user":
+            continue
+        c = m.get("content", "")
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            parts = []
+            for item in c:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(str(item.get("text", "")))
+                elif isinstance(item, str):
+                    parts.append(item)
+            return " ".join(p for p in parts if p)
+        return str(c)
+    return ""
+
+
+def _new_request(model: str, stream: bool, messages: int, tools: int,
+                 prompt: str, tools_names: List[str]) -> Dict[str, Any]:
+    """Create + register a request-log record; returns it so it can be finalized."""
+    rec = {
+        "id": uuid.uuid4().hex[:10],
+        "ts": time.time(),
+        "model": model,
+        "stream": stream,
+        "messages": messages,
+        "tools": tools,
+        "tools_names": list(tools_names or []),
+        "input": _clip(prompt, 400),
+        "output": "",
+        "finish_reason": "",
+        "latency_ms": None,
+        "ttft_ms": None,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "tools_called": [],
+    }
+    _REQUEST_LOG.append(rec)
+    return rec
+
+
+def _finish_request(rec: Optional[Dict[str, Any]], output: str = "", finish_reason: str = "",
+                    latency_ms: Optional[float] = None, ttft_ms: Optional[float] = None,
+                    usage: Optional[Dict[str, Any]] = None,
+                    tools_called: Optional[List[str]] = None) -> None:
+    """Finalize a request-log record with its outcome (idempotent, never raises)."""
+    if rec is None:
+        return
+    try:
+        if output:
+            rec["output"] = _clip(output, 600)
+        if finish_reason:
+            rec["finish_reason"] = finish_reason
+        if latency_ms is not None:
+            rec["latency_ms"] = round(latency_ms, 1)
+        if ttft_ms is not None:
+            rec["ttft_ms"] = round(ttft_ms, 1)
+        if usage:
+            rec["prompt_tokens"] = usage.get("prompt_tokens", 0) or 0
+            rec["completion_tokens"] = usage.get("completion_tokens", 0) or 0
+            rec["total_tokens"] = usage.get("total_tokens", 0) or 0
+        if tools_called is not None:
+            rec["tools_called"] = list(tools_called)
+    except Exception:
+        pass
 
 
 def get_session_cookies() -> Dict[str, str]:
@@ -1001,6 +1093,7 @@ async def stats():
         "tool_usage": dict(top_tools[:20]),
         "model_usage": _STATS["model_usage"],
         "model_tokens": _STATS["model_tokens"],
+        "recent_requests": list(_REQUEST_LOG)[::-1][:50],
     }
 
 
@@ -1122,6 +1215,39 @@ if (typeof Chart === 'undefined') {
   .track { height:9px; background:rgba(10,10,10,.10); border:2px solid var(--ink); margin-top:6px; }
   .track > i { display:block; height:100%; background:var(--accent,var(--blue)); }
 
+  /* ── Request log ── */
+  .rlog { display:flex; flex-direction:column; gap:12px; max-height:640px; overflow-y:auto; }
+  .rlog .row {
+    border:2px solid var(--ink); background:#fff; padding:11px 13px;
+  }
+  .rlog .row.err { background:#FFE9E9; }
+  .rlog .meta {
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    font-weight:900; font-size:11px; letter-spacing:.5px; text-transform:uppercase;
+    margin-bottom:8px;
+  }
+  .rlog .chip {
+    border:2px solid var(--ink); padding:2px 8px; background:var(--paper);
+    font-weight:900; font-size:10px; letter-spacing:.5px;
+  }
+  .rlog .chip.ok  { background:var(--green); }
+  .rlog .chip.tc  { background:var(--yellow); }
+  .rlog .chip.bad { background:var(--red); color:#fff; }
+  .rlog .io { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .rlog .io > div { border-left:4px solid var(--ink); padding-left:9px; min-width:0; }
+  .rlog .io .lbl {
+    font-weight:900; font-size:10px; letter-spacing:.8px; text-transform:uppercase;
+    opacity:.6; margin-bottom:3px;
+  }
+  .rlog .io .txt {
+    font-weight:700; font-size:12.5px; line-height:1.45; white-space:pre-wrap;
+    word-break:break-word; max-height:96px; overflow-y:auto;
+  }
+  .rlog .io .in  { border-left-color:var(--blue); }
+  .rlog .io .out { border-left-color:var(--green); }
+  .rlog .foot2 { font-weight:800; font-size:11px; opacity:.65; margin-top:8px; }
+  @media (max-width:760px){ .rlog .io { grid-template-columns:1fr; } }
+
   /* ── Footer ── */
   .foot {
     margin-top:34px; display:flex; justify-content:space-between; align-items:center;
@@ -1172,6 +1298,10 @@ if (typeof Chart === 'undefined') {
     <div class="panel wide" style="--accent:var(--green)">
       <h3>Activity timeline (last 60 min)</h3>
       <div class="canvas-box tall"><canvas id="c-timeline"></canvas></div>
+    </div>
+    <div class="panel wide" style="--accent:var(--cyan)">
+      <h3>Recent requests <span class="chip" id="rlog-count" style="margin-left:auto">0</span></h3>
+      <div class="rlog" id="rlog"><div class="empty">No requests yet</div></div>
     </div>
   </div>
 
@@ -1287,6 +1417,41 @@ function initCharts() {
   charts.timeline = mkLine('c-timeline');
 }
 
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ms = v => (v == null ? '—' : Math.round(v) + 'ms');
+
+function renderRequestLog(rows) {
+  $('rlog-count').textContent = rows.length;
+  if (!rows.length) { $('rlog').innerHTML = '<div class="empty">No requests yet</div>'; return; }
+  let h = '';
+  for (const r of rows) {
+    const bad = r.finish_reason === 'error';
+    const fr = r.finish_reason || 'pending';
+    const chipCls = bad ? 'bad' : (fr === 'tool_calls' ? 'tc' : 'ok');
+    const when = new Date(r.ts * 1000).toLocaleTimeString();
+    const tools = (r.tools_called && r.tools_called.length)
+      ? '<span class="chip tc">🔧 ' + esc(r.tools_called.join(', ')) + '</span>' : '';
+    h += '<div class="row' + (bad ? ' err' : '') + '">' +
+      '<div class="meta">' +
+        '<span class="chip ' + chipCls + '">' + esc(fr) + '</span>' +
+        '<span class="chip">' + esc(r.model) + '</span>' +
+        '<span class="chip">' + (r.stream ? 'stream' : 'sync') + '</span>' +
+        tools +
+        '<span style="margin-left:auto;opacity:.6">' + when + '</span>' +
+      '</div>' +
+      '<div class="io">' +
+        '<div class="in"><div class="lbl">▲ Input</div><div class="txt">' + (esc(r.input) || '<em>(empty)</em>') + '</div></div>' +
+        '<div class="out"><div class="lbl">▼ Output</div><div class="txt">' + (esc(r.output) || '<em>(no text)</em>') + '</div></div>' +
+      '</div>' +
+      '<div class="foot2">' + ms(r.latency_ms) + (r.ttft_ms != null ? ' · ttft ' + ms(r.ttft_ms) : '') +
+        ' · in ' + fmt(r.prompt_tokens) + ' / out ' + fmt(r.completion_tokens) +
+        ' tok · ' + esc(r.id) + '</div>' +
+    '</div>';
+  }
+  $('rlog').innerHTML = h;
+}
+
 let alive = false;
 async function tick() {
   try {
@@ -1356,6 +1521,8 @@ async function tick() {
     $('model-table').innerHTML = rowsTable(
       Object.entries(s.model_tokens || {}).map(([m,v]) => [m, v.total_tokens]).sort((a,b) => b[1]-a[1]),
       'Model', 'Tokens', '--purple');
+
+    renderRequestLog(s.recent_requests || []);
 
     $('foot-meta').textContent = 'up ' + uptime(s.uptime_seconds) + ' · ' +
       fmt(s.requests) + ' req · ' + fmt(t.total_tokens) + ' tokens · updated ' + new Date().toLocaleTimeString();
@@ -1491,6 +1658,14 @@ async def chat_completions(request: Request):
     _record_timeline(requests=1)
     _req_start = time.time()
 
+    # Per-request log: create the record up front so even early failures are logged.
+    _tool_names = [t.get("function", {}).get("name", "?") for t in (tools or []) if isinstance(t, dict)]
+    _req_rec = _new_request(
+        model=model, stream=bool(stream), messages=len(messages),
+        tools=len(tools) if tools else 0, prompt=_last_user_text(messages),
+        tools_names=_tool_names,
+    )
+
     # Cap thinking + answer output via max_completion_tokens if not set by caller
     # (prevents unbounded thinking bloat - research shows MiMo can produce 25-30k thinking tokens without cap)
     if not body.get("max_completion_tokens") and not body.get("max_tokens"):
@@ -1509,6 +1684,8 @@ async def chat_completions(request: Request):
         _STATS["errors"] += 1
         _record_timeline(errors=1)
         _record_finish_reason("error")
+        _finish_request(_req_rec, output=f"[error] {e}", finish_reason="error",
+                        latency_ms=(time.time() - _req_start) * 1000.0)
         return JSONResponse({"error": str(e)}, status_code=401)
 
     # Format unified prompt (with per-framework tool template)
@@ -1627,6 +1804,9 @@ async def chat_completions(request: Request):
                                     _STATS["errors"] += 1
                                     _record_timeline(errors=1)
                                     _record_finish_reason("error")
+                                    _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
+                                                    finish_reason="error",
+                                                    latency_ms=(time.time() - _req_start) * 1000.0)
                                     yield "data: [DONE]\n\n"
                                     return
 
@@ -1786,14 +1966,20 @@ async def chat_completions(request: Request):
                 _STATS["errors"] += 1
                 _record_timeline(errors=1)
                 _record_finish_reason("error")
+                _finish_request(_req_rec, output=f"[error] stream: {e}", finish_reason="error",
+                                latency_ms=(time.time() - _req_start) * 1000.0)
                 yield "data: [DONE]\n\n"
                 return
 
             full_reply = "".join(accumulated_chunks)
 
             # If tools were active, parse tools and stream tool_calls
+            _stream_out_text = full_reply
+            _stream_tools_called: List[str] = []
             if tools:
                 raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
+                _stream_out_text = clean_text or full_reply
+                _stream_tools_called = [tc.get("name", "?") for tc in raw_calls]
                 if raw_calls:
                     _STATS["tool_calls"] += len(raw_calls)
                     _record_timeline(tool_calls=len(raw_calls))
@@ -1899,6 +2085,15 @@ async def chat_completions(request: Request):
 
             _record_latency("latency_ms", (time.time() - _req_start) * 1000.0)
             _record_finish_reason(_finish_reason)
+            _finish_request(
+                _req_rec,
+                output=_stream_out_text,
+                finish_reason=_finish_reason,
+                latency_ms=(time.time() - _req_start) * 1000.0,
+                ttft_ms=((_first_token_at - _req_start) * 1000.0) if _first_token_at else None,
+                usage=usage_data,
+                tools_called=_stream_tools_called,
+            )
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -1922,6 +2117,12 @@ async def chat_completions(request: Request):
                     async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:
                             err_body = await resp.aread()
+                            _STATS["errors"] += 1
+                            _record_timeline(errors=1)
+                            _record_finish_reason("error")
+                            _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
+                                            finish_reason="error",
+                                            latency_ms=(time.time() - _req_start) * 1000.0)
                             return JSONResponse(
                                 {"error": f"Upstream HTTP {resp.status_code}: {err_body.decode('utf-8', errors='ignore')}"},
                                 status_code=resp.status_code
@@ -1975,6 +2176,8 @@ async def chat_completions(request: Request):
         _STATS["errors"] += 1
         _record_timeline(errors=1)
         _record_finish_reason("error")
+        _finish_request(_req_rec, output=f"[error] upstream: {e}", finish_reason="error",
+                        latency_ms=(time.time() - _req_start) * 1000.0)
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
 
     full_reply = "".join(accumulated_chunks)
@@ -2015,6 +2218,15 @@ async def chat_completions(request: Request):
 
     _record_latency("latency_ms", (time.time() - _req_start) * 1000.0)
     _record_finish_reason(finish_reason)
+
+    _finish_request(
+        _req_rec,
+        output=clean_text or full_reply or (reasoning_text or ""),
+        finish_reason=finish_reason,
+        latency_ms=(time.time() - _req_start) * 1000.0,
+        usage=usage_data,
+        tools_called=[tc.get("name", "?") for tc in raw_calls],
+    )
 
     message_payload: Dict[str, Any] = {
         "role": "assistant",

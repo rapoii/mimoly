@@ -101,6 +101,11 @@ curl http://127.0.0.1:8080/v1/stats
 **Charts:** finish-reason doughnut, token-split doughnut (input/output/reasoning),
 tool-usage bars, tokens-per-model bars, and a dual-axis activity timeline (last 60 min).
 
+**Recent requests log:** the bottom panel shows the last 50 requests one by one —
+each row has the finish-reason / model / stream chips, a timestamp, and side-by-side
+**▲ Input** (the user prompt) and **▼ Output** (the model's reply) blocks, plus
+latency, TTFT, and token counts. It is also exposed as JSON under `recent_requests`.
+
 Tracked metrics (all in-memory, reset on restart):
 
 | Metric | Description |
@@ -117,6 +122,7 @@ Tracked metrics (all in-memory, reset on restart):
 | `latency` | end-to-end latency `{count, avg_ms, min_ms, max_ms}` |
 | `ttft` | time-to-first-token for streaming `{count, avg_ms, min_ms, max_ms}` |
 | `timeline` | per-minute buckets of `{requests, errors, tool_calls, total_tokens}` |
+| `recent_requests` | last 50 requests: `{id, ts, model, stream, input, output, finish_reason, latency_ms, ttft_ms, prompt_tokens, completion_tokens, tools_called}` |
 | `tool_usage` | per-tool call counts (top 20) |
 | `model_tokens` | per-model token breakdown |
 

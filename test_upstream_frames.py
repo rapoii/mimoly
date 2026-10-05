@@ -493,6 +493,70 @@ def main():
     check("dashboard has thick ink borders", "3px solid" in _dash, "no thick border")
     check("dashboard offline fallback", "offline-note" in _dash, "no fallback")
 
+    # ------------------------------------------------------------------
+    # [unit] per-request log (input + output per request)
+    # ------------------------------------------------------------------
+    print("[unit] per-request request log")
+    check("_REQUEST_LOG exists", hasattr(m, "_REQUEST_LOG"), "missing ring buffer")
+    check("_new_request helper exists", hasattr(m, "_new_request"), "missing")
+    check("_finish_request helper exists", hasattr(m, "_finish_request"), "missing")
+    check("_clip helper exists", hasattr(m, "_clip"), "missing")
+    check("_last_user_text helper exists", hasattr(m, "_last_user_text"), "missing")
+
+    if hasattr(m, "_clip"):
+        check("_clip truncates long text", len(m._clip("x" * 5000, 100)) <= 120,
+              f"got {len(m._clip('x'*5000, 100))}")
+        check("_clip keeps short text", m._clip("hello", 100) == "hello")
+
+    if hasattr(m, "_last_user_text"):
+        check("_last_user_text picks last user msg",
+              m._last_user_text([{"role": "system", "content": "s"},
+                                 {"role": "user", "content": "a"},
+                                 {"role": "user", "content": "b"}]) == "b",
+              "wrong pick")
+        check("_last_user_text handles multimodal",
+              m._last_user_text([{"role": "user", "content": [
+                  {"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {}}]}]) == "hi",
+              "multimodal not handled")
+        check("_last_user_text empty when none", m._last_user_text([{"role": "system", "content": "s"}]) == "")
+
+    if hasattr(m, "_REQUEST_LOG") and hasattr(m, "_new_request"):
+        m._REQUEST_LOG.clear()
+        rec = m._new_request(model="mimo", stream=True, messages=2, tools=1,
+                             prompt="halo", tools_names=["get_weather"])
+        check("record has id + ts", bool(rec.get("id")) and bool(rec.get("ts")), f"got {rec}")
+        check("record stored in ring buffer", len(m._REQUEST_LOG) == 1, f"got {len(m._REQUEST_LOG)}")
+        check("record keeps input", rec.get("input") == "halo", f"got {rec.get('input')}")
+        check("record defaults output empty", rec.get("output") == "", f"got {rec.get('output')}")
+
+        # _finish_request fills the outcome fields
+        if hasattr(m, "_finish_request"):
+            m._finish_request(rec, output="jawaban", finish_reason="stop", latency_ms=123.4,
+                              ttft_ms=45.6, usage={"prompt_tokens": 10, "completion_tokens": 5,
+                                                   "total_tokens": 15}, tools_called=[])
+            check("finish sets output", rec.get("output") == "jawaban", f"got {rec.get('output')}")
+            check("finish sets finish_reason", rec.get("finish_reason") == "stop")
+            check("finish sets latency", rec.get("latency_ms") == 123.4, f"got {rec.get('latency_ms')}")
+            check("finish sets tokens", rec.get("prompt_tokens") == 10 and rec.get("completion_tokens") == 5,
+                  f"got {rec}")
+            check("finish sets tools_called", rec.get("tools_called") == [])
+
+        # ring buffer must be bounded (deque maxlen)
+        m._REQUEST_LOG.clear()
+        for i in range(120):
+            m._new_request(model="m", stream=False, messages=1, tools=0,
+                           prompt=str(i), tools_names=[])
+        check("ring buffer bounded to <=50", len(m._REQUEST_LOG) <= 50,
+              f"grew to {len(m._REQUEST_LOG)}")
+
+    # /v1/stats must expose the recent request log (newest first)
+    _sr = _asyncio.run(m.stats())
+    check("stats exposes recent_requests list",
+          isinstance(_sr.get("recent_requests"), list), f"got {type(_sr.get('recent_requests'))}")
+
+    check("dashboard has recent-requests panel",
+          "recent" in _dash.lower(), "no request log panel")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
