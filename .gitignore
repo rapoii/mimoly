@@ -11,6 +11,14 @@ session.json
 last_request.json
 *.log
 
+# Machine-specific verify recipe (absolute paths)
+.hermes/
+
+# Local screenshot / docs artifacts
+docs_shot.png
+show_docs.ps1
+take_screenshot.ps1
+
 # IDE
 .vscode/
 .idea/
