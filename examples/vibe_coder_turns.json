@@ -1,0 +1,47 @@
+[
+  {
+    "label": "01_ide_ngawur",
+    "prompt": "halo... aku lagi pengen bikin semacam aplikasi timer gitu buat kerja fokus-fokus, kayak pomodoro gitulah. kemarin liat punya temen bagus banget. aku ada screenshot tampilannya nih, kira-kira kayak gitu deh yang aku mau. tapi jujur aku bingung mau mulai dari mana, masih newbie. tolong bantu aku dong",
+    "image": "D:\\Software\\Hermes Workspace\\projects\\pomo-demo\\mockup.png"
+  },
+  {
+    "label": "02_stack_ragu",
+    "prompt": "oh iya, aku kepikiran bikin yang versi web aja biar gampang dibuka. katanya pake React sama Vite bagus ya? tapi aku kurang paham sih, takutnya udah jadul. kamu cek dulu deh dokumentasi paling baru soal React + Vite, biar aku ga salah jalan dari awal"
+  },
+  {
+    "label": "03_bikin_bebas",
+    "prompt": "oke terserah kamu deh pokoknya yang penting jalan di laptopku. aku percaya kamu. bikin aja filenya sekalian sampe bisa dijalanin, nanti aku liat hasilnya"
+  },
+  {
+    "label": "04_error_bingung",
+    "prompt": "aduhh pas aku coba jalanin kok error ya, aku ga ngerti sama sekali errornya apa. kamu liat dong kode yang tadi udah dibikin, apa ada yang salah atau kelewat? pusing aku"
+  },
+  {
+    "label": "05_lihat_browser",
+    "prompt": "udah jalan belum sih sebenernya? aku pengen liat langsung tampilannya di browser dong, biar yakin. buka aja di browser terus kasih tau aku tampilannya udah bener belum"
+  },
+  {
+    "label": "06_next_checklist",
+    "prompt": "oke mantap. terus sekarang next-nya apa lagi ya? aku suka lupa soalnya. bikinin checklist aja biar aku tinggal centang, terus catet juga di board biar keliatan progressnya"
+  },
+  {
+    "label": "07_inget_preferensi",
+    "prompt": "eh iya penting, inget ya aku tuh sukanya yang gelap-gelapan (dark mode), terus aku ga suka yang ribet-ribet. catet aja biar next time ga usah aku ulangin. btw ada ga sih skill atau panduan khusus buat ngerjain proyek kayak gini?"
+  },
+  {
+    "label": "08_ringkas_ulang",
+    "prompt": "hmm tadi kita sebenernya udah ngapain aja ya dari awal? aku lupa-lupa inget. ringkas dong dari pertama sampe sekarang, biar aku nyambung lagi"
+  },
+  {
+    "label": "09_paralel_tanya",
+    "prompt": "btw bagian tampilan/styling kayaknya bisa dikerjain barengan deh biar cepet, kasih ke yang lain aja. terus aku bingung nih mau warna tema apa, jangan asal pilih, tanya aku dulu dong"
+  },
+  {
+    "label": "10_otomatis_3d",
+    "prompt": "kalo misal aku mau tiap pagi jam 8 ada reminder otomatis biar aku ga lupa mulai kerja, bisa ga? terus aku penasaran aja, ada ga sih tool buat bikin model 3D-nya? kalo ada coba cek sekalian. sama kalau ada layanan lain yang bisa disambungin kasih tau"
+  },
+  {
+    "label": "11_ngeles",
+    "prompt": "oke deh thanks. kayaknya cukup dulu, besok aku lanjut lagi ya. oh iya nanti kalau aku balik lagi, kamu masih inget kan progresnya sampe mana?"
+  }
+]

@@ -177,6 +177,84 @@ def main():
               f"found literal URL in prompt")
         check("masked URL still readable", "example . com" in prompt)
 
+    # --- Unit: coerce_tool_args repairs JSON-stringified array/object params ---
+    # Bug: MiMo sometimes emits a tool argument that SHOULD be an array as a JSON
+    # *string* (e.g. queries='["a","b"]' instead of ["a","b"]). Hermes' tool_search
+    # / tool_describe then reject it ("requires a 'name'" / not_found), the model
+    # gives up on tools, and no MCP tool is ever called.
+    print("[unit] coerce_tool_args repairs stringified array/object params")
+    coerce = getattr(m, "coerce_tool_args", None)
+    check("coerce_tool_args exists", coerce is not None)
+    if coerce is not None:
+        tools_schema = [
+            {"type": "function", "function": {"name": "tool_search",
+             "parameters": {"type": "object", "properties": {
+                 "queries": {"type": "array", "items": {"type": "string"}},
+                 "limit": {"type": "integer"}}, "required": ["queries"]}}},
+            {"type": "function", "function": {"name": "tool_describe",
+             "parameters": {"type": "object", "properties": {
+                 "names": {"type": "array", "items": {"type": "string"}}}}}},
+        ]
+        got = coerce("tool_search",
+                     {"queries": '["open browser", "take screenshot"]', "limit": 10},
+                     tools_schema)
+        check("stringified array -> list", isinstance(got.get("queries"), list)
+              and got["queries"] == ["open browser", "take screenshot"], f"got {got!r}")
+        check("non-string param untouched", got.get("limit") == 10, f"got {got!r}")
+
+        got2 = coerce("tool_describe", {"names": '["mcp__playwright__browser_navigate"]'},
+                      tools_schema)
+        check("describe names string -> list",
+              got2.get("names") == ["mcp__playwright__browser_navigate"], f"got {got2!r}")
+
+        # A genuine list must survive untouched.
+        got3 = coerce("tool_search", {"queries": ["a", "b"]}, tools_schema)
+        check("real list untouched", got3.get("queries") == ["a", "b"], f"got {got3!r}")
+
+        # Bare (non-JSON) string for an array param is wrapped, not dropped.
+        got4 = coerce("tool_search", {"queries": "open browser"}, tools_schema)
+        check("bare string wrapped into list", got4.get("queries") == ["open browser"],
+              f"got {got4!r}")
+
+        # Unknown tool / no schema: leave the dict alone.
+        got5 = coerce("mystery", {"x": "[1,2]"}, tools_schema)
+        check("unknown tool untouched", got5 == {"x": "[1,2]"}, f"got {got5!r}")
+
+        # Array-of-objects alias: tool_call wants calls=[{name, arguments}];
+        # MiMo emits calls=[{tool, arguments}] -> rename tool -> name.
+        schema_call = [{"type": "function", "function": {"name": "tool_call",
+            "parameters": {"type": "object", "properties": {
+                "calls": {"type": "array", "items": {"type": "object", "properties": {
+                    "name": {"type": "string"}, "arguments": {"type": "object"}}}}}}}}]
+        got6 = coerce("tool_call",
+                      {"calls": [{"tool": "mcp__playwright__browser_navigate",
+                                  "arguments": {"url": "https://x"}}]}, schema_call)
+        check("calls[].tool renamed to name",
+              got6["calls"][0].get("name") == "mcp__playwright__browser_navigate"
+              and "tool" not in got6["calls"][0], f"got {got6!r}")
+
+    # --- Integration: XML tool_call with stringified array is repaired ---
+    print("[integration] smart_extract_tool_calls repairs stringified array param")
+    if coerce is not None:
+        reply = (
+            "<tool_call>\n"
+            "<function=tool_search>\n"
+            '<parameter=queries>["open browser", "screenshot"]</parameter>\n'
+            "<parameter=limit>10</parameter>\n"
+            "</function>\n"
+            "</tool_call>"
+        )
+        tools_schema = [
+            {"type": "function", "function": {"name": "tool_search",
+             "parameters": {"type": "object", "properties": {
+                 "queries": {"type": "array", "items": {"type": "string"}},
+                 "limit": {"type": "integer"}}}}},
+        ]
+        calls, _ = m.smart_extract_tool_calls(reply, "buka browser", tools_schema)
+        ok = (len(calls) == 1 and calls[0]["name"] == "tool_search"
+              and isinstance(calls[0]["arguments"].get("queries"), list))
+        check("extracted queries is a list", ok, f"got {calls!r}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

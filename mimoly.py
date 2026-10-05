@@ -424,7 +424,86 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     return "\n\n".join(prompt_lines)
 
 
-def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
+def _coerce_to_list(val: Any) -> List[Any]:
+    """Best-effort turn a stringified array into a real list."""
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        s = val.strip()
+        if s.startswith("[") and s.endswith("]"):
+            parsed = safe_json_loads(s, default=None)
+            if isinstance(parsed, list):
+                return parsed
+            inner = s[1:-1].strip()
+            if not inner:
+                return []
+            # Fallback: comma-separated items, strip surrounding quotes.
+            return [p.strip().strip("\"'") for p in inner.split(",") if p.strip()]
+        return [s] if s else []
+    return [val]
+
+
+def coerce_tool_args(name: str, args: dict, available_tools: Optional[List[Dict[str, Any]]] = None) -> dict:
+    """Repair tool arguments whose JSON type drifted from the declared schema.
+
+    MiMo (the upstream model) sometimes emits a parameter that *should* be an
+    array/object as a JSON *string* — e.g. ``queries='["a","b"]'`` instead of
+    ``queries=["a","b"]``. Hermes' ``tool_search``/``tool_describe`` then reject
+    the call (``requires a 'name'`` / ``not_found``), the model gives up on the
+    tool, and the MCP toolset is never actually used. We coerce the value back to
+    the type the schema declares so the call survives.
+    """
+    if not isinstance(args, dict) or not available_tools:
+        return args
+
+    schema = None
+    for t in available_tools:
+        fn = t.get("function") or {}
+        if fn.get("name") == name:
+            schema = fn.get("parameters") or {}
+            break
+    if not isinstance(schema, dict):
+        return args
+    props = schema.get("properties") or {}
+
+    for key, spec in props.items():
+        if key not in args or not isinstance(spec, dict):
+            continue
+        want = spec.get("type")
+        val = args[key]
+        if want == "array" and not isinstance(val, list):
+            args[key] = _coerce_to_list(val)
+        elif want == "object" and isinstance(val, str):
+            parsed = safe_json_loads(val.strip(), default=None)
+            if isinstance(parsed, dict):
+                args[key] = parsed
+        elif want == "integer" and isinstance(val, str) and val.strip().lstrip("-").isdigit():
+            args[key] = int(val.strip())
+        elif want == "boolean" and isinstance(val, str) and val.strip().lower() in ("true", "false"):
+            args[key] = val.strip().lower() == "true"
+
+        # Array-of-objects: repair each item's key names against the item schema.
+        # e.g. Hermes' tool_call wants calls=[{name, arguments}]; MiMo emits
+        # calls=[{tool, arguments}], and the call is rejected for a missing 'name'.
+        if want == "array" and isinstance(args.get(key), list):
+            item_spec = spec.get("items")
+            if isinstance(item_spec, dict) and item_spec.get("type") == "object":
+                item_props = item_spec.get("properties") or {}
+                aliases = {"name": ("tool", "tool_name", "function", "function_name", "id")}
+                for element in args[key]:
+                    if not isinstance(element, dict):
+                        continue
+                    for want_key, alt_keys in aliases.items():
+                        if want_key in item_props and want_key not in element:
+                            for alt in alt_keys:
+                                if alt in element:
+                                    element[want_key] = element.pop(alt)
+                                    break
+    return args
+
+
+def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
+                        available_tools: Optional[List[Dict[str, Any]]] = None) -> dict:
     """Normalize tool arguments for consistency across frameworks and models."""
     if not isinstance(args, dict):
         return args
@@ -482,6 +561,9 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "") -> dict:
             p = f"D:/Software/Hermes Workspace/{p}"
         args["path"] = p
 
+    # Repair JSON-type drift (stringified arrays/objects) against the tool schema.
+    args = coerce_tool_args(name, args, available_tools)
+
     return args
 
 
@@ -524,7 +606,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                     else:
                         params[p_name] = p_val
 
-            params = normalize_tool_args(fn_name, params, user_prompt)
+            params = normalize_tool_args(fn_name, params, user_prompt, available_tools)
             if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                 fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
@@ -548,13 +630,13 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                         if "tool_calls" in item and isinstance(item["tool_calls"], list):
                             for tc in item["tool_calls"]:
                                 name = tc.get("name")
-                                args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt)
+                                args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt, available_tools)
                                 if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                     name = "terminal"
                                 tc_list.append({"name": name, "arguments": args})
                         elif "name" in item:
                             name = item["name"]
-                            args = normalize_tool_args(name, item.get("arguments") or item.get("parameters") or {}, user_prompt)
+                            args = normalize_tool_args(name, item.get("arguments") or item.get("parameters") or {}, user_prompt, available_tools)
                             if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                                 name = "terminal"
                             tc_list.append({"name": name, "arguments": args})
@@ -562,13 +644,13 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                 if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
                     for tc in tc_obj["tool_calls"]:
                         name = tc.get("name")
-                        args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt)
+                        args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt, available_tools)
                         if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                             name = "terminal"
                         tc_list.append({"name": name, "arguments": args})
                 elif "name" in tc_obj:
                     name = tc_obj["name"]
-                    args = normalize_tool_args(name, tc_obj.get("arguments") or tc_obj.get("parameters") or {}, user_prompt)
+                    args = normalize_tool_args(name, tc_obj.get("arguments") or tc_obj.get("parameters") or {}, user_prompt, available_tools)
                     if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
                         name = "terminal"
                     tc_list.append({"name": name, "arguments": args})
@@ -583,11 +665,18 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
             d = json.loads(m_json.group(1), strict=False)
             if "tool_calls" in d and isinstance(d["tool_calls"], list):
                 clean = reply_text.replace(m_json.group(0), "").strip()
-                return d["tool_calls"], clean
+                calls = []
+                for tc in d["tool_calls"]:
+                    nm = tc.get("name") or (tc.get("function") or {}).get("name")
+                    ar = tc.get("arguments") or tc.get("parameters") or (tc.get("function") or {}).get("arguments") or {}
+                    if isinstance(ar, str):
+                        ar = safe_json_loads(ar, default={})
+                    calls.append({"name": nm, "arguments": normalize_tool_args(nm, ar, user_prompt, available_tools)})
+                return calls, clean
             elif "name" in d and ("parameters" in d or "arguments" in d):
                 args = d.get("parameters") or d.get("arguments") or {}
                 clean = reply_text.replace(m_json.group(0), "").strip()
-                return [{"name": d["name"], "arguments": args}], clean
+                return [{"name": d["name"], "arguments": normalize_tool_args(d["name"], args, user_prompt, available_tools)}], clean
         except Exception:
             pass
 
@@ -598,7 +687,11 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
             calls = []
             for item in arr:
                 if "name" in item:
-                    calls.append({"name": item.get("name"), "arguments": item.get("arguments") or item.get("parameters") or {}})
+                    args = item.get("arguments") or item.get("parameters") or {}
+                    if isinstance(args, str):
+                        args = safe_json_loads(args, default={})
+                    calls.append({"name": item.get("name"),
+                                  "arguments": normalize_tool_args(item.get("name"), args, user_prompt, available_tools)})
             if calls:
                 clean = reply_text.replace(m2.group(0), "").strip()
                 return calls, clean
