@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 try:
     from fastapi import FastAPI, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse, StreamingResponse
+    from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
     import httpx
     import uvicorn
 except ImportError:
@@ -182,9 +182,33 @@ _STATS = {
     "errors": 0,
     "tool_calls": 0,
     "coerced_args": 0,
+    "prompt_tokens": 0,       # cumulative input tokens
+    "completion_tokens": 0,   # cumulative output tokens
+    "total_tokens": 0,
+    "reasoning_tokens": 0,
     "tool_usage": {},        # {tool_name: count}
     "model_usage": {},       # {model_id: count}
+    "model_tokens": {},      # {model_id: {prompt_tokens, completion_tokens, total_tokens}}
 }
+
+
+def _record_usage(usage: Dict[str, Any], model: str = "") -> None:
+    """Accumulate upstream token usage into the global + per-model counters."""
+    pt = usage.get("prompt_tokens", 0) or 0
+    ct = usage.get("completion_tokens", 0) or 0
+    tt = usage.get("total_tokens", 0) or 0
+    rt = (usage.get("completion_tokens_details", {}) or {}).get("reasoning_tokens", 0) or 0
+    _STATS["prompt_tokens"] += pt
+    _STATS["completion_tokens"] += ct
+    _STATS["total_tokens"] += tt
+    _STATS["reasoning_tokens"] += rt
+    if model:
+        mt = _STATS["model_tokens"].setdefault(
+            model, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        )
+        mt["prompt_tokens"] += pt
+        mt["completion_tokens"] += ct
+        mt["total_tokens"] += tt
 
 
 def get_session_cookies() -> Dict[str, str]:
@@ -803,9 +827,121 @@ async def stats():
         "errors": _STATS["errors"],
         "tool_calls": _STATS["tool_calls"],
         "coerced_args": _STATS["coerced_args"],
+        "tokens": {
+            "prompt_tokens": _STATS["prompt_tokens"],
+            "completion_tokens": _STATS["completion_tokens"],
+            "total_tokens": _STATS["total_tokens"],
+            "reasoning_tokens": _STATS["reasoning_tokens"],
+        },
         "tool_usage": dict(top_tools[:20]),
         "model_usage": _STATS["model_usage"],
+        "model_tokens": _STATS["model_tokens"],
     }
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """Ultra-light single-file live dashboard for /v1/stats (no deps, auto-refresh)."""
+    return HTMLResponse(_DASHBOARD_HTML)
+
+
+_DASHBOARD_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mimoly stats</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --bd:#30363d; --fg:#e6edf3; --mut:#8b949e;
+          --acc:#58a6ff; --grn:#3fb950; --red:#f85149; --yel:#d29922; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+         background:var(--bg); color:var(--fg); padding:20px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:12px; margin-bottom:16px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+         background:var(--grn); margin-right:6px; animation:p 2s infinite; }
+  @keyframes p { 50% { opacity:.3; } }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--bd); border-radius:8px; padding:14px; }
+  .k { color:var(--mut); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  .v { font-size:24px; font-weight:600; margin-top:4px; }
+  .v.acc{color:var(--acc)} .v.grn{color:var(--grn)} .v.red{color:var(--red)} .v.yel{color:var(--yel)}
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+  th,td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--bd); }
+  th { color:var(--mut); font-weight:500; font-size:11px; text-transform:uppercase; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; }
+  h2 { font-size:13px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px;
+       margin:22px 0 6px; }
+  .bar { height:6px; background:var(--bd); border-radius:3px; overflow:hidden; margin-top:6px; }
+  .bar > i { display:block; height:100%; background:var(--acc); }
+  .empty { color:var(--mut); font-style:italic; padding:8px; }
+</style>
+</head>
+<body>
+<h1><span class="dot"></span>mimoly web2api</h1>
+<div class="sub" id="sub">connecting…</div>
+
+<div class="grid">
+  <div class="card"><div class="k">Requests</div><div class="v acc" id="req">0</div></div>
+  <div class="card"><div class="k">Errors</div><div class="v red" id="err">0</div></div>
+  <div class="card"><div class="k">Tool calls</div><div class="v" id="tc">0</div></div>
+  <div class="card"><div class="k">Coerced args</div><div class="v yel" id="co">0</div></div>
+  <div class="card"><div class="k">Input tokens</div><div class="v" id="pt">0</div></div>
+  <div class="card"><div class="k">Output tokens</div><div class="v grn" id="ct">0</div></div>
+  <div class="card"><div class="k">Total tokens</div><div class="v acc" id="tt">0</div></div>
+  <div class="card"><div class="k">Reasoning</div><div class="v" id="rt">0</div></div>
+</div>
+
+<h2>Per-model tokens</h2>
+<div id="models"></div>
+
+<h2>Tool usage</h2>
+<div id="tools"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => (n||0).toLocaleString();
+
+function bars(rows, unit) {
+  if (!rows.length) return '<div class="empty">no data yet</div>';
+  const max = Math.max(...rows.map(r => r[1]));
+  return '<table><tr><th>name</th><th style="text-align:right">' + unit + '</th><th></th></tr>' +
+    rows.map(([k,v]) =>
+      '<tr><td>' + k + '</td><td class="n">' + fmt(v) + '</td>' +
+      '<td style="width:40%"><div class="bar"><i style="width:' +
+      Math.max(2, v/max*100) + '%"></i></div></td></tr>').join('') + '</table>';
+}
+
+async function tick() {
+  try {
+    const s = await (await fetch('/v1/stats')).json();
+    $('req').textContent = fmt(s.requests);
+    $('err').textContent = fmt(s.errors);
+    $('tc').textContent  = fmt(s.tool_calls);
+    $('co').textContent  = fmt(s.coerced_args);
+    const t = s.tokens || {};
+    $('pt').textContent = fmt(t.prompt_tokens);
+    $('ct').textContent = fmt(t.completion_tokens);
+    $('tt').textContent = fmt(t.total_tokens);
+    $('rt').textContent = fmt(t.reasoning_tokens);
+    $('sub').textContent = 'up ' + Math.floor((s.uptime_seconds||0)/60) + 'm ' +
+      Math.floor((s.uptime_seconds||0)%60) + 's · live · ' +
+      new Date().toLocaleTimeString();
+
+    const mt = s.model_tokens || {};
+    const rows = Object.entries(mt).map(([m,v]) => [m, v.total_tokens]);
+    $('models').innerHTML = bars(rows, 'tokens');
+    $('tools').innerHTML  = bars(Object.entries(s.tool_usage||{}), 'calls');
+  } catch (e) {
+    $('sub').innerHTML = '<span style="color:#f85149">disconnected</span> · ' + e;
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>"""
 
 
 @app.get("/v1/models")
@@ -1091,6 +1227,7 @@ async def chat_completions(request: Request):
                                         reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
                                         if reasoning_tokens:
                                             usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+                                        _record_usage(usage_data, model)
                                         continue
 
                                     content_piece = parsed.get("content", "")
@@ -1366,6 +1503,7 @@ async def chat_completions(request: Request):
                                 reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
                                 if reasoning_tokens:
                                     usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+                                _record_usage(usage_data, model)
                                 continue
 
                             content_piece = parsed.get("content", "")
@@ -1454,6 +1592,7 @@ def cmd_serve(args):
     print(f"[mimoly] Endpoints:")
     print(f"  - Health:     http://{args.host}:{args.port}/health")
     print(f"  - Stats:      http://{args.host}:{args.port}/v1/stats")
+    print(f"  - Dashboard:  http://{args.host}:{args.port}/dashboard")
     print(f"  - Models:     http://{args.host}:{args.port}/v1/models")
     print(f"  - Chat:       http://{args.host}:{args.port}/v1/chat/completions")
     

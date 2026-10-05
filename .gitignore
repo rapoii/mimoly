@@ -16,6 +16,7 @@ last_request.json
 
 # Local screenshot / docs artifacts
 docs_shot.png
+dashboard_shot.png
 show_docs.ps1
 take_screenshot.ps1
 

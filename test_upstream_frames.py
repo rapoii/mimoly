@@ -293,6 +293,60 @@ def main():
     check("coerced_args unchanged for valid args", m._STATS["coerced_args"] == 1,
           f"got {m._STATS['coerced_args']}")
 
+    # ------------------------------------------------------------------
+    # [unit] token usage tracking (_record_usage)
+    # ------------------------------------------------------------------
+    print("[unit] token usage tracking")
+
+    for k in ("prompt_tokens", "completion_tokens", "total_tokens", "reasoning_tokens"):
+        m._STATS[k] = 0
+    m._STATS["model_tokens"] = {}
+
+    check("token keys present",
+          all(k in m._STATS for k in ("prompt_tokens", "completion_tokens",
+                                       "total_tokens", "reasoning_tokens", "model_tokens")),
+          f"got {list(m._STATS)}")
+
+    m._record_usage({"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                    "model-a")
+    check("prompt_tokens accumulated", m._STATS["prompt_tokens"] == 100,
+          f"got {m._STATS['prompt_tokens']}")
+    check("completion_tokens accumulated", m._STATS["completion_tokens"] == 20,
+          f"got {m._STATS['completion_tokens']}")
+    check("total_tokens accumulated", m._STATS["total_tokens"] == 120,
+          f"got {m._STATS['total_tokens']}")
+    check("per-model tokens recorded",
+          m._STATS["model_tokens"].get("model-a", {}).get("total_tokens") == 120,
+          f"got {m._STATS['model_tokens']}")
+
+    # reasoning tokens extracted from nested detail
+    m._record_usage({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15,
+                     "completion_tokens_details": {"reasoning_tokens": 3}}, "model-a")
+    check("reasoning_tokens accumulated", m._STATS["reasoning_tokens"] == 3,
+          f"got {m._STATS['reasoning_tokens']}")
+    check("per-model accumulates across calls",
+          m._STATS["model_tokens"]["model-a"]["total_tokens"] == 135,
+          f"got {m._STATS['model_tokens']['model-a']}")
+
+    # missing keys default to 0, no crash
+    m._record_usage({}, "model-b")
+    check("empty usage is safe", m._STATS["model_tokens"]["model-b"]["total_tokens"] == 0,
+          f"got {m._STATS['model_tokens'].get('model-b')}")
+
+    # ------------------------------------------------------------------
+    # [unit] /dashboard endpoint serves HTML
+    # ------------------------------------------------------------------
+    print("[unit] dashboard endpoint")
+    check("_DASHBOARD_HTML defined", hasattr(m, "_DASHBOARD_HTML"), "missing")
+    check("dashboard HTML non-trivial",
+          len(getattr(m, "_DASHBOARD_HTML", "")) > 1000,
+          f"len={len(getattr(m, '_DASHBOARD_HTML', ''))}")
+    check("dashboard fetches /v1/stats", "/v1/stats" in getattr(m, "_DASHBOARD_HTML", ""),
+          "no stats fetch")
+    check("dashboard route registered",
+          any(getattr(r, "path", "") == "/dashboard" for r in m.app.routes),
+          "route not found")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
