@@ -1761,137 +1761,178 @@ async def chat_completions(request: Request):
     # --- STREAMING PATH ---
     if stream:
         async def sse_generator():
-            # Initial role chunk only if tools are not requested
-            if not tools:
-                initial_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created_time,
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": ""},
-                        "finish_reason": None
-                    }]
-                }
-                yield f"data: {json.dumps(initial_chunk)}\n\n"
-
+            # Initialize state BEFORE the try so the finally safety-net can always
+            # reference them, even if the client disconnects on the very first yield.
             accumulated_chunks = []
             usage_data = None
             in_thinking = False
             _first_token_at = None
             _finish_reason = "stop"
-
+            _stream_out_text = ""
+            _stream_tools_called: List[str] = []
             try:
-                for attempt in range(3):
-                    try:
-                        async with httpx.AsyncClient(timeout=180.0) as client:
-                            async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
-                                if resp.status_code != 200:
-                                    err_text = await resp.aread()
-                                    err_chunk = {
-                                        "id": completion_id,
-                                        "object": "chat.completion.chunk",
-                                        "created": created_time,
-                                        "model": model,
-                                        "choices": [{
-                                            "index": 0,
-                                            "delta": {"content": f"\n[Error from upstream: HTTP {resp.status_code}: {err_text.decode('utf-8', errors='ignore')}]"},
-                                            "finish_reason": "error"
-                                        }]
-                                    }
-                                    yield f"data: {json.dumps(err_chunk)}\n\n"
-                                    _STATS["errors"] += 1
-                                    _record_timeline(errors=1)
-                                    _record_finish_reason("error")
-                                    _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
-                                                    finish_reason="error",
-                                                    latency_ms=(time.time() - _req_start) * 1000.0)
-                                    yield "data: [DONE]\n\n"
-                                    return
+                # Initial role chunk only if tools are not requested
+                if not tools:
+                    initial_chunk = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created_time,
+                        "model": model,
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                            "finish_reason": None
+                        }]
+                    }
+                    yield f"data: {json.dumps(initial_chunk)}\n\n"
 
-                                async for line in resp.aiter_lines():
-                                    if not line:
-                                        continue
-                                    if line.startswith("data:"):
-                                        print(f"[mimoly sse]: {line[:100]}")
-                                    if not line.startswith("data:"):
-                                        continue
-
-                                    data_str = line[5:].strip()
-                                    if "[DONE]" in data_str:
-                                        print("[mimoly sse] Detected [DONE] marker")
-                                        break
-
-                                    try:
-                                        parsed = json.loads(data_str)
-                                    except Exception:
-                                        continue
-                                    # Ignore non-object frames (e.g. Xiaomi's internal
-                                    # web-search JSON array) instead of crashing with
-                                    # "'list' object has no attribute 'get'".
-                                    parsed = normalize_upstream_frame(parsed)
-                                    if parsed is None:
-                                        continue
-
-                                    if parsed.get("content") == "[DONE]":
-                                        break
-
-                                    # Capture usage metrics from upstream
-                                    if "promptTokens" in parsed or "totalTokens" in parsed:
-                                        usage_data = {
-                                            "prompt_tokens": parsed.get("promptTokens", 0),
-                                            "completion_tokens": parsed.get("completionTokens", 0),
-                                            "total_tokens": parsed.get("totalTokens", 0),
+                try:
+                    for attempt in range(3):
+                        try:
+                            async with httpx.AsyncClient(timeout=180.0) as client:
+                                async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
+                                    if resp.status_code != 200:
+                                        err_text = await resp.aread()
+                                        err_chunk = {
+                                            "id": completion_id,
+                                            "object": "chat.completion.chunk",
+                                            "created": created_time,
+                                            "model": model,
+                                            "choices": [{
+                                                "index": 0,
+                                                "delta": {"content": f"\n[Error from upstream: HTTP {resp.status_code}: {err_text.decode('utf-8', errors='ignore')}]"},
+                                                "finish_reason": "error"
+                                            }]
                                         }
-                                        native_usage = parsed.get("nativeUsage", {})
-                                        reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
-                                        if reasoning_tokens:
-                                            usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
-                                        _record_usage(usage_data, model)
-                                        continue
+                                        yield f"data: {json.dumps(err_chunk)}\n\n"
+                                        _STATS["errors"] += 1
+                                        _record_timeline(errors=1)
+                                        _record_finish_reason("error")
+                                        _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
+                                                        finish_reason="error",
+                                                        latency_ms=(time.time() - _req_start) * 1000.0)
+                                        yield "data: [DONE]\n\n"
+                                        return
 
-                                    content_piece = parsed.get("content", "")
-                                    # Ignore dialog ID event
-                                    if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
-                                        continue
+                                    async for line in resp.aiter_lines():
+                                        if not line:
+                                            continue
+                                        if line.startswith("data:"):
+                                            print(f"[mimoly sse]: {line[:100]}")
+                                        if not line.startswith("data:"):
+                                            continue
 
-                                    if not content_piece:
-                                        continue
+                                        data_str = line[5:].strip()
+                                        if "[DONE]" in data_str:
+                                            print("[mimoly sse] Detected [DONE] marker")
+                                            break
 
-                                    # Time-to-first-token (stream): first real content chunk
-                                    if _first_token_at is None:
-                                        _first_token_at = time.time()
-                                        _record_latency("ttft_ms", (_first_token_at - _req_start) * 1000.0)
+                                        try:
+                                            parsed = json.loads(data_str)
+                                        except Exception:
+                                            continue
+                                        # Ignore non-object frames (e.g. Xiaomi's internal
+                                        # web-search JSON array) instead of crashing with
+                                        # "'list' object has no attribute 'get'".
+                                        parsed = normalize_upstream_frame(parsed)
+                                        if parsed is None:
+                                            continue
 
-                                    if "<think>" in content_piece:
-                                        in_thinking = True
-                                        content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
+                                        if parsed.get("content") == "[DONE]":
+                                            break
 
-                                    if "</think>" in content_piece:
-                                        parts = content_piece.split("</think>", 1)
-                                        think_part = parts[0].replace("\x00", "")
-                                        answer_part = parts[1].replace("\x00", "")
-
-                                        if think_part and thinking_enabled:
-                                            t_chunk = {
-                                                "id": completion_id,
-                                                "object": "chat.completion.chunk",
-                                                "created": created_time,
-                                                "model": model,
-                                                "choices": [{
-                                                    "index": 0,
-                                                    "delta": {"role": "assistant", "reasoning_content": think_part},
-                                                    "finish_reason": None
-                                                }]
+                                        # Capture usage metrics from upstream
+                                        if "promptTokens" in parsed or "totalTokens" in parsed:
+                                            usage_data = {
+                                                "prompt_tokens": parsed.get("promptTokens", 0),
+                                                "completion_tokens": parsed.get("completionTokens", 0),
+                                                "total_tokens": parsed.get("totalTokens", 0),
                                             }
-                                            yield f"data: {json.dumps(t_chunk)}\n\n"
+                                            native_usage = parsed.get("nativeUsage", {})
+                                            reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+                                            if reasoning_tokens:
+                                                usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+                                            _record_usage(usage_data, model)
+                                            continue
 
-                                        in_thinking = False
+                                        content_piece = parsed.get("content", "")
+                                        # Ignore dialog ID event
+                                        if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
+                                            continue
 
-                                        if answer_part:
+                                        if not content_piece:
+                                            continue
+
+                                        # Time-to-first-token (stream): first real content chunk
+                                        if _first_token_at is None:
+                                            _first_token_at = time.time()
+                                            _record_latency("ttft_ms", (_first_token_at - _req_start) * 1000.0)
+
+                                        if "<think>" in content_piece:
+                                            in_thinking = True
+                                            content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
+
+                                        if "</think>" in content_piece:
+                                            parts = content_piece.split("</think>", 1)
+                                            think_part = parts[0].replace("\x00", "")
+                                            answer_part = parts[1].replace("\x00", "")
+
+                                            if think_part and thinking_enabled:
+                                                t_chunk = {
+                                                    "id": completion_id,
+                                                    "object": "chat.completion.chunk",
+                                                    "created": created_time,
+                                                    "model": model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {"role": "assistant", "reasoning_content": think_part},
+                                                        "finish_reason": None
+                                                    }]
+                                                }
+                                                yield f"data: {json.dumps(t_chunk)}\n\n"
+
+                                            in_thinking = False
+
+                                            if answer_part:
+                                                if tools:
+                                                    accumulated_chunks.append(answer_part)
+                                                else:
+                                                    chunk = {
+                                                        "id": completion_id,
+                                                        "object": "chat.completion.chunk",
+                                                        "created": created_time,
+                                                        "model": model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {"role": "assistant", "content": answer_part},
+                                                            "finish_reason": None
+                                                        }]
+                                                    }
+                                                    yield f"data: {json.dumps(chunk)}\n\n"
+                                                    accumulated_chunks.append(answer_part)
+                                            continue
+
+                                        clean_piece = content_piece.replace("\x00", "")
+                                        if not clean_piece:
+                                            continue
+
+                                        if in_thinking:
+                                            if thinking_enabled:
+                                                t_chunk = {
+                                                    "id": completion_id,
+                                                    "object": "chat.completion.chunk",
+                                                    "created": created_time,
+                                                    "model": model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {"role": "assistant", "reasoning_content": clean_piece},
+                                                        "finish_reason": None
+                                                    }]
+                                                }
+                                                yield f"data: {json.dumps(t_chunk)}\n\n"
+                                        else:
                                             if tools:
-                                                accumulated_chunks.append(answer_part)
+                                                accumulated_chunks.append(clean_piece)
                                             else:
                                                 chunk = {
                                                     "id": completion_id,
@@ -1900,150 +1941,127 @@ async def chat_completions(request: Request):
                                                     "model": model,
                                                     "choices": [{
                                                         "index": 0,
-                                                        "delta": {"role": "assistant", "content": answer_part},
+                                                        "delta": {"role": "assistant", "content": clean_piece},
                                                         "finish_reason": None
                                                     }]
                                                 }
                                                 yield f"data: {json.dumps(chunk)}\n\n"
-                                                accumulated_chunks.append(answer_part)
-                                        continue
+                                                accumulated_chunks.append(clean_piece)
+                            break
+                        except Exception as conn_err:
+                            if attempt == 2:
+                                raise conn_err
+                            print(f"[mimoly] Upstream stream retry {attempt+1}/3 due to: {conn_err}")
+                            await asyncio.sleep(2.0)
 
-                                    clean_piece = content_piece.replace("\x00", "")
-                                    if not clean_piece:
-                                        continue
-
-                                    if in_thinking:
-                                        if thinking_enabled:
-                                            t_chunk = {
-                                                "id": completion_id,
-                                                "object": "chat.completion.chunk",
-                                                "created": created_time,
-                                                "model": model,
-                                                "choices": [{
-                                                    "index": 0,
-                                                    "delta": {"role": "assistant", "reasoning_content": clean_piece},
-                                                    "finish_reason": None
-                                                }]
-                                            }
-                                            yield f"data: {json.dumps(t_chunk)}\n\n"
-                                    else:
-                                        if tools:
-                                            accumulated_chunks.append(clean_piece)
-                                        else:
-                                            chunk = {
-                                                "id": completion_id,
-                                                "object": "chat.completion.chunk",
-                                                "created": created_time,
-                                                "model": model,
-                                                "choices": [{
-                                                    "index": 0,
-                                                    "delta": {"role": "assistant", "content": clean_piece},
-                                                    "finish_reason": None
-                                                }]
-                                            }
-                                            yield f"data: {json.dumps(chunk)}\n\n"
-                                            accumulated_chunks.append(clean_piece)
-                        break
-                    except Exception as conn_err:
-                        if attempt == 2:
-                            raise conn_err
-                        print(f"[mimoly] Upstream stream retry {attempt+1}/3 due to: {conn_err}")
-                        await asyncio.sleep(2.0)
-
-            except Exception as e:
-                err_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created_time,
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": f"\n[Stream connection error: {e}]"},
-                        "finish_reason": "error"
-                    }]
-                }
-                yield f"data: {json.dumps(err_chunk)}\n\n"
-                _STATS["errors"] += 1
-                _record_timeline(errors=1)
-                _record_finish_reason("error")
-                _finish_request(_req_rec, output=f"[error] stream: {e}", finish_reason="error",
-                                latency_ms=(time.time() - _req_start) * 1000.0)
-                yield "data: [DONE]\n\n"
-                return
-
-            full_reply = "".join(accumulated_chunks)
-
-            # If tools were active, parse tools and stream tool_calls
-            _stream_out_text = full_reply
-            _stream_tools_called: List[str] = []
-            if tools:
-                raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
-                _stream_out_text = clean_text or full_reply
-                _stream_tools_called = [tc.get("name", "?") for tc in raw_calls]
-                if raw_calls:
-                    _STATS["tool_calls"] += len(raw_calls)
-                    _record_timeline(tool_calls=len(raw_calls))
-                    _finish_reason = "tool_calls"
-                    for tc in raw_calls:
-                        tn = tc.get("name", "?")
-                        _STATS["tool_usage"][tn] = _STATS["tool_usage"].get(tn, 0) + 1
-                    openai_tool_calls = []
-                    for i, tc in enumerate(raw_calls):
-                        raw_args = tc.get("arguments", {})
-                        args_str = json.dumps(raw_args) if isinstance(raw_args, dict) else str(raw_args)
-                        openai_tool_calls.append({
-                            "index": i,
-                            "id": f"call_{int(time.time()*1000)}_{i}",
-                            "type": "function",
-                            "function": {
-                                "name": tc.get("name"),
-                                "arguments": args_str
-                            }
-                        })
-                    tc_chunk = {
+                except Exception as e:
+                    err_chunk = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
                         "created": created_time,
                         "model": model,
                         "choices": [{
                             "index": 0,
-                            "delta": {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": openai_tool_calls
-                            },
-                            "finish_reason": None
+                            "delta": {"content": f"\n[Stream connection error: {e}]"},
+                            "finish_reason": "error"
                         }]
                     }
-                    yield f"data: {json.dumps(tc_chunk)}\n\n"
+                    yield f"data: {json.dumps(err_chunk)}\n\n"
+                    _STATS["errors"] += 1
+                    _record_timeline(errors=1)
+                    _record_finish_reason("error")
+                    _finish_request(_req_rec, output=f"[error] stream: {e}", finish_reason="error",
+                                    latency_ms=(time.time() - _req_start) * 1000.0)
+                    yield "data: [DONE]\n\n"
+                    return
 
-                    tc_finish = {
-                        "id": completion_id,
-                        "object": "chat.completion.chunk",
-                        "created": created_time,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": "tool_calls"
-                        }]
-                    }
-                    yield f"data: {json.dumps(tc_finish)}\n\n"
+                full_reply = "".join(accumulated_chunks)
+
+                # If tools were active, parse tools and stream tool_calls
+                _stream_out_text = full_reply
+                _stream_tools_called: List[str] = []
+                if tools:
+                    raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
+                    _stream_out_text = clean_text or full_reply
+                    _stream_tools_called = [tc.get("name", "?") for tc in raw_calls]
+                    if raw_calls:
+                        _STATS["tool_calls"] += len(raw_calls)
+                        _record_timeline(tool_calls=len(raw_calls))
+                        _finish_reason = "tool_calls"
+                        for tc in raw_calls:
+                            tn = tc.get("name", "?")
+                            _STATS["tool_usage"][tn] = _STATS["tool_usage"].get(tn, 0) + 1
+                        openai_tool_calls = []
+                        for i, tc in enumerate(raw_calls):
+                            raw_args = tc.get("arguments", {})
+                            args_str = json.dumps(raw_args) if isinstance(raw_args, dict) else str(raw_args)
+                            openai_tool_calls.append({
+                                "index": i,
+                                "id": f"call_{int(time.time()*1000)}_{i}",
+                                "type": "function",
+                                "function": {
+                                    "name": tc.get("name"),
+                                    "arguments": args_str
+                                }
+                            })
+                        tc_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": None,
+                                    "tool_calls": openai_tool_calls
+                                },
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(tc_chunk)}\n\n"
+
+                        tc_finish = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": "tool_calls"
+                            }]
+                        }
+                        yield f"data: {json.dumps(tc_finish)}\n\n"
+                    else:
+                        # Stream remaining clean text if no tool called
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": clean_text},
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+
+                        stop_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": "stop"
+                            }]
+                        }
+                        yield f"data: {json.dumps(stop_chunk)}\n\n"
                 else:
-                    # Stream remaining clean text if no tool called
-                    chunk = {
-                        "id": completion_id,
-                        "object": "chat.completion.chunk",
-                        "created": created_time,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": clean_text},
-                            "finish_reason": None
-                        }]
-                    }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-
+                    # Normal stop chunk
                     stop_chunk = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
@@ -2056,45 +2074,48 @@ async def chat_completions(request: Request):
                         }]
                     }
                     yield f"data: {json.dumps(stop_chunk)}\n\n"
-            else:
-                # Normal stop chunk
-                stop_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created_time,
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {},
-                        "finish_reason": "stop"
-                    }]
-                }
-                yield f"data: {json.dumps(stop_chunk)}\n\n"
 
-            # Final usage chunk
-            if usage_data:
-                usage_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created_time,
-                    "model": model,
-                    "choices": [],
-                    "usage": usage_data
-                }
-                yield f"data: {json.dumps(usage_chunk)}\n\n"
+                # Final usage chunk
+                if usage_data:
+                    usage_chunk = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created_time,
+                        "model": model,
+                        "choices": [],
+                        "usage": usage_data
+                    }
+                    yield f"data: {json.dumps(usage_chunk)}\n\n"
 
-            _record_latency("latency_ms", (time.time() - _req_start) * 1000.0)
-            _record_finish_reason(_finish_reason)
-            _finish_request(
-                _req_rec,
-                output=_stream_out_text,
-                finish_reason=_finish_reason,
-                latency_ms=(time.time() - _req_start) * 1000.0,
-                ttft_ms=((_first_token_at - _req_start) * 1000.0) if _first_token_at else None,
-                usage=usage_data,
-                tools_called=_stream_tools_called,
-            )
-            yield "data: [DONE]\n\n"
+                _record_latency("latency_ms", (time.time() - _req_start) * 1000.0)
+                _record_finish_reason(_finish_reason)
+                _finish_request(
+                    _req_rec,
+                    output=_stream_out_text,
+                    finish_reason=_finish_reason,
+                    latency_ms=(time.time() - _req_start) * 1000.0,
+                    ttft_ms=((_first_token_at - _req_start) * 1000.0) if _first_token_at else None,
+                    usage=usage_data,
+                    tools_called=_stream_tools_called,
+                )
+                yield "data: [DONE]\n\n"
+            finally:
+                # Safety net: if the client disconnected or the stream was
+                # cancelled before the normal finalize ran, record what we have
+                # so a request never stays "pending" forever.
+                if _req_rec is not None and not _req_rec.get("finish_reason"):
+                    _elapsed_ms = (time.time() - _req_start) * 1000.0
+                    _record_latency("latency_ms", _elapsed_ms)
+                    _record_finish_reason("cancelled")
+                    _finish_request(
+                        _req_rec,
+                        output=_stream_out_text or "".join(accumulated_chunks),
+                        finish_reason="cancelled",
+                        latency_ms=_elapsed_ms,
+                        ttft_ms=((_first_token_at - _req_start) * 1000.0) if _first_token_at else None,
+                        usage=usage_data,
+                        tools_called=_stream_tools_called,
+                    )
 
         return StreamingResponse(
             sse_generator(),

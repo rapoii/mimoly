@@ -557,6 +557,22 @@ def main():
     check("dashboard has recent-requests panel",
           "recent" in _dash.lower(), "no request log panel")
 
+    # ------------------------------------------------------------------
+    # [unit] streaming safety-net (cancelled streams must still finalize)
+    # ------------------------------------------------------------------
+    print("[unit] streaming cancel safety-net")
+    _src = open(MIMOLY, encoding="utf-8").read()
+    check("stream generator has finally safety-net", "finally:" in _src, "no finally")
+    check("safety-net records 'cancelled'", '"cancelled"' in _src, "no cancelled reason")
+    check("safety-net guarded by finish_reason check",
+          'not _req_rec.get("finish_reason")' in _src, "no guard -> double counting")
+    # _finish_request must tolerate None (defensive)
+    m._finish_request(None, output="x")  # must not raise
+    check("_finish_request tolerates None rec", True)
+    # _clip is bounded even for huge outputs
+    check("_clip bounds huge output", len(m._clip("y" * 100000, 600)) <= 605,
+          f"got {len(m._clip('y'*100000, 600))}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
