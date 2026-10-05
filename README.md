@@ -82,6 +82,35 @@ Verify the server is running:
 curl http://127.0.0.1:8080/health
 ```
 
+### 📊 Live Dashboard & Stats
+
+A zero-dependency, auto-refreshing dashboard is served at `/dashboard`
+(refreshes every 2s, no build step, no external assets):
+
+```bash
+# Open in browser
+start http://127.0.0.1:8080/dashboard     # Windows
+open  http://127.0.0.1:8080/dashboard     # macOS
+
+# Raw JSON (same data)
+curl http://127.0.0.1:8080/v1/stats
+```
+
+Tracked metrics (all in-memory, reset on restart):
+
+| Metric | Description |
+|---|---|
+| `requests` / `errors` | total proxied requests and failures |
+| `tool_calls` | total tool calls emitted by the model |
+| `coerced_args` | tool args auto-repaired by `coerce_tool_args` |
+| `invalid_args` | tool args still mismatched after coercion |
+| `tokens.prompt_tokens` | cumulative **input** tokens |
+| `tokens.completion_tokens` | cumulative **output** tokens |
+| `tokens.total_tokens` | cumulative input + output |
+| `tokens.reasoning_tokens` | reasoning ("thinking") tokens |
+| `tool_usage` | per-tool call counts (top 20) |
+| `model_tokens` | per-model token breakdown |
+
 ---
 
 ## 📦 Supported Models & Thinking Controls
