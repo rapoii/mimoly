@@ -294,6 +294,76 @@ def main():
           f"got {m._STATS['coerced_args']}")
 
     # ------------------------------------------------------------------
+    # [unit] coerce_tool_args — proactive patterns + schema validation
+    # ------------------------------------------------------------------
+    print("[unit] coerce_tool_args proactive")
+
+    def _schema(props, required=None):
+        return [{"type": "function", "function": {"name": "t",
+                 "parameters": {"type": "object", "properties": props,
+                                "required": required or []}}}]
+
+    # number: "3.14" -> 3.14
+    a = {"ratio": "3.14"}
+    m.coerce_tool_args("t", a, _schema({"ratio": {"type": "number"}}))
+    check("number coerced from string",
+          a["ratio"] == 3.14 and isinstance(a["ratio"], float), f"got {a['ratio']!r}")
+
+    # boolean: "1"/"0"/int 1 -> True/False/True
+    a = {"flag": "1"}
+    m.coerce_tool_args("t", a, _schema({"flag": {"type": "boolean"}}))
+    check("boolean from '1'", a["flag"] is True, f"got {a['flag']!r}")
+    a = {"flag": "0"}
+    m.coerce_tool_args("t", a, _schema({"flag": {"type": "boolean"}}))
+    check("boolean from '0'", a["flag"] is False, f"got {a['flag']!r}")
+    a = {"flag": 1}
+    m.coerce_tool_args("t", a, _schema({"flag": {"type": "boolean"}}))
+    check("boolean from int 1", a["flag"] is True, f"got {a['flag']!r}")
+
+    # nested object recursion: config.level "3" -> 3
+    a = {"config": '{"level": "3"}'}
+    m.coerce_tool_args("t", a, _schema({"config": {"type": "object", "properties": {
+        "level": {"type": "integer"}}}}))
+    check("nested object scalar coerced",
+          a["config"] == {"level": 3}, f"got {a['config']!r}")
+
+    # null string -> None for nullable field
+    a = {"note": "null"}
+    m.coerce_tool_args("t", a, _schema({"note": {"type": ["string", "null"]}}))
+    check("'null' string -> None", a["note"] is None, f"got {a['note']!r}")
+
+    # --- schema validation ---
+    check("validate_tool_args exists", hasattr(m, "validate_tool_args"), "missing")
+    v = m.validate_tool_args("t", {"ratio": "x"},
+                             _schema({"ratio": {"type": "number"}}, ["ratio"]))
+    check("validate returns dict", isinstance(v, dict), f"got {type(v)}")
+    check("validate flags type mismatch",
+          v.get("valid") is False and bool(v.get("issues")), f"got {v}")
+    v2 = m.validate_tool_args("t", {},
+                              _schema({"ratio": {"type": "number"}}, ["ratio"]))
+    check("validate flags missing required",
+          v2.get("valid") is False
+          and any("required" in i.lower() or "missing" in i.lower()
+                  for i in v2.get("issues", [])), f"got {v2}")
+    v3 = m.validate_tool_args("t", {"ratio": 1.5},
+                              _schema({"ratio": {"type": "number"}}, ["ratio"]))
+    check("validate passes good args", v3.get("valid") is True, f"got {v3}")
+
+    # invalid_args counter increments when normalize_tool_args sees a mismatch
+    m._STATS["invalid_args"] = 0
+    m.normalize_tool_args("t", {"ratio": "not-a-number"},
+                          available_tools=_schema({"ratio": {"type": "number"}}, ["ratio"]))
+    check("invalid_args counted after failed coercion",
+          m._STATS["invalid_args"] == 1, f"got {m._STATS['invalid_args']}")
+
+    # a clean, coercible arg should NOT count as invalid
+    m._STATS["invalid_args"] = 0
+    m.normalize_tool_args("t", {"ratio": "2.5"},
+                          available_tools=_schema({"ratio": {"type": "number"}}, ["ratio"]))
+    check("coercible arg not counted invalid",
+          m._STATS["invalid_args"] == 0, f"got {m._STATS['invalid_args']}")
+
+    # ------------------------------------------------------------------
     # [unit] token usage tracking (_record_usage)
     # ------------------------------------------------------------------
     print("[unit] token usage tracking")

@@ -182,6 +182,7 @@ _STATS = {
     "errors": 0,
     "tool_calls": 0,
     "coerced_args": 0,
+    "invalid_args": 0,        # args still mismatched after coercion
     "prompt_tokens": 0,       # cumulative input tokens
     "completion_tokens": 0,   # cumulative output tokens
     "total_tokens": 0,
@@ -480,63 +481,160 @@ def _coerce_to_list(val: Any) -> List[Any]:
     return [val]
 
 
+def _schema_for(name: str, available_tools: Optional[List[Dict[str, Any]]]) -> Optional[dict]:
+    """Return the declared parameter schema for a tool, or None."""
+    if not available_tools:
+        return None
+    for t in available_tools:
+        fn = t.get("function") or {}
+        if fn.get("name") == name:
+            schema = fn.get("parameters") or {}
+            return schema if isinstance(schema, dict) else None
+    return None
+
+
+def _type_list(spec: dict) -> List[str]:
+    """Normalize a JSON-schema ``type`` (string or union list) to a list."""
+    want = spec.get("type")
+    if isinstance(want, list):
+        return [w for w in want if isinstance(w, str)]
+    return [want] if isinstance(want, str) else []
+
+
+def _coerce_value(val: Any, spec: dict) -> Any:
+    """Recursively coerce ``val`` toward the type declared by ``spec``."""
+    if not isinstance(spec, dict):
+        return val
+    types = _type_list(spec)
+
+    # Nullable: JSON string "null" -> Python None
+    if isinstance(val, str) and val.strip().lower() == "null" and "null" in types:
+        return None
+
+    target = next((t for t in types if t and t != "null"), None)
+
+    if target == "array" and not isinstance(val, list):
+        val = _coerce_to_list(val)
+    elif target == "object":
+        if isinstance(val, str):
+            parsed = safe_json_loads(val.strip(), default=None)
+            if isinstance(parsed, dict):
+                val = parsed
+        if isinstance(val, dict):
+            for k, sub in (spec.get("properties") or {}).items():
+                if k in val:
+                    val[k] = _coerce_value(val[k], sub)
+    elif target == "integer" and isinstance(val, str) and val.strip().lstrip("-").isdigit():
+        val = int(val.strip())
+    elif target == "number" and isinstance(val, str):
+        try:
+            val = float(val.strip())
+        except ValueError:
+            pass
+    elif target == "boolean":
+        if isinstance(val, str) and val.strip().lower() in ("true", "false", "1", "0"):
+            val = val.strip().lower() in ("true", "1")
+        elif isinstance(val, int) and not isinstance(val, bool) and val in (0, 1):
+            val = bool(val)
+
+    # Array-of-objects: repair item key names + recurse into item fields.
+    # e.g. Hermes' tool_call wants calls=[{name, arguments}]; MiMo emits
+    # calls=[{tool, arguments}], and the call is rejected for a missing 'name'.
+    if target == "array" and isinstance(val, list):
+        item_spec = spec.get("items")
+        if isinstance(item_spec, dict) and item_spec.get("type") == "object":
+            item_props = item_spec.get("properties") or {}
+            aliases = {"name": ("tool", "tool_name", "function", "function_name", "id")}
+            for element in val:
+                if not isinstance(element, dict):
+                    continue
+                for want_key, alt_keys in aliases.items():
+                    if want_key in item_props and want_key not in element:
+                        for alt in alt_keys:
+                            if alt in element:
+                                element[want_key] = element.pop(alt)
+                                break
+                for k, sub in item_props.items():
+                    if k in element:
+                        element[k] = _coerce_value(element[k], sub)
+    return val
+
+
+def _value_matches(val: Any, types: List[str]) -> bool:
+    """True if ``val`` satisfies at least one of the declared JSON types."""
+    if not types:
+        return True
+    for t in types:
+        if t == "null" and val is None:
+            return True
+        if t == "string" and isinstance(val, str):
+            return True
+        if t == "integer" and isinstance(val, int) and not isinstance(val, bool):
+            return True
+        if t == "number" and isinstance(val, (int, float)) and not isinstance(val, bool):
+            return True
+        if t == "boolean" and isinstance(val, bool):
+            return True
+        if t == "array" and isinstance(val, list):
+            return True
+        if t == "object" and isinstance(val, dict):
+            return True
+    return False
+
+
+def validate_tool_args(name: str, args: dict,
+                       available_tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Check ``args`` against the declared tool schema.
+
+    Returns ``{"valid": bool, "issues": [str, ...]}``. Used after coercion to
+    surface (not silently swallow) arguments that still don't fit the schema.
+    """
+    if not isinstance(args, dict):
+        return {"valid": False, "issues": ["arguments is not a JSON object"]}
+    schema = _schema_for(name, available_tools)
+    if not isinstance(schema, dict):
+        return {"valid": True, "issues": []}
+
+    props = schema.get("properties") or {}
+    required = schema.get("required") or []
+    issues: List[str] = []
+
+    for req in required:
+        if req not in args:
+            issues.append(f"missing required field '{req}'")
+    for key, spec in props.items():
+        if key not in args or not isinstance(spec, dict):
+            continue
+        types = _type_list(spec)
+        if types and not _value_matches(args[key], types):
+            issues.append(
+                f"field '{key}' expected {'|'.join(types)}, got {type(args[key]).__name__}"
+            )
+    return {"valid": not issues, "issues": issues}
+
+
 def coerce_tool_args(name: str, args: dict, available_tools: Optional[List[Dict[str, Any]]] = None) -> dict:
     """Repair tool arguments whose JSON type drifted from the declared schema.
 
     MiMo (the upstream model) sometimes emits a parameter that *should* be an
-    array/object as a JSON *string* — e.g. ``queries='["a","b"]'`` instead of
-    ``queries=["a","b"]``. Hermes' ``tool_search``/``tool_describe`` then reject
-    the call (``requires a 'name'`` / ``not_found``), the model gives up on the
-    tool, and the MCP toolset is never actually used. We coerce the value back to
-    the type the schema declares so the call survives.
+    array/object/number/boolean as a JSON *string* — e.g. ``queries='["a","b"]'``
+    instead of ``queries=["a","b"]``. Hermes' ``tool_search``/``tool_describe``
+    then reject the call (``requires a 'name'`` / ``not_found``), the model gives
+    up on the tool, and the MCP toolset is never actually used. We coerce the
+    value back to the type the schema declares (recursively) so the call survives.
     """
     if not isinstance(args, dict) or not available_tools:
         return args
 
     snapshot = repr(args)  # cheap before-snapshot for coercion detection
-    schema = None
-    for t in available_tools:
-        fn = t.get("function") or {}
-        if fn.get("name") == name:
-            schema = fn.get("parameters") or {}
-            break
+    schema = _schema_for(name, available_tools)
     if not isinstance(schema, dict):
         return args
-    props = schema.get("properties") or {}
 
-    for key, spec in props.items():
-        if key not in args or not isinstance(spec, dict):
-            continue
-        want = spec.get("type")
-        val = args[key]
-        if want == "array" and not isinstance(val, list):
-            args[key] = _coerce_to_list(val)
-        elif want == "object" and isinstance(val, str):
-            parsed = safe_json_loads(val.strip(), default=None)
-            if isinstance(parsed, dict):
-                args[key] = parsed
-        elif want == "integer" and isinstance(val, str) and val.strip().lstrip("-").isdigit():
-            args[key] = int(val.strip())
-        elif want == "boolean" and isinstance(val, str) and val.strip().lower() in ("true", "false"):
-            args[key] = val.strip().lower() == "true"
+    for key, spec in (schema.get("properties") or {}).items():
+        if key in args and isinstance(spec, dict):
+            args[key] = _coerce_value(args[key], spec)
 
-        # Array-of-objects: repair each item's key names against the item schema.
-        # e.g. Hermes' tool_call wants calls=[{name, arguments}]; MiMo emits
-        # calls=[{tool, arguments}], and the call is rejected for a missing 'name'.
-        if want == "array" and isinstance(args.get(key), list):
-            item_spec = spec.get("items")
-            if isinstance(item_spec, dict) and item_spec.get("type") == "object":
-                item_props = item_spec.get("properties") or {}
-                aliases = {"name": ("tool", "tool_name", "function", "function_name", "id")}
-                for element in args[key]:
-                    if not isinstance(element, dict):
-                        continue
-                    for want_key, alt_keys in aliases.items():
-                        if want_key in item_props and want_key not in element:
-                            for alt in alt_keys:
-                                if alt in element:
-                                    element[want_key] = element.pop(alt)
-                                    break
     if repr(args) != snapshot:
         _STATS["coerced_args"] += 1
     return args
@@ -603,6 +701,12 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
 
     # Repair JSON-type drift (stringified arrays/objects) against the tool schema.
     args = coerce_tool_args(name, args, available_tools)
+
+    # Surface (don't swallow) args that still don't fit the schema.
+    _validation = validate_tool_args(name, args, available_tools)
+    if not _validation["valid"]:
+        _STATS["invalid_args"] += 1
+        print(f"[mimoly] schema mismatch for '{name}': {_validation['issues']}")
 
     return args
 
@@ -827,6 +931,7 @@ async def stats():
         "errors": _STATS["errors"],
         "tool_calls": _STATS["tool_calls"],
         "coerced_args": _STATS["coerced_args"],
+        "invalid_args": _STATS["invalid_args"],
         "tokens": {
             "prompt_tokens": _STATS["prompt_tokens"],
             "completion_tokens": _STATS["completion_tokens"],
@@ -887,6 +992,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   <div class="card"><div class="k">Errors</div><div class="v red" id="err">0</div></div>
   <div class="card"><div class="k">Tool calls</div><div class="v" id="tc">0</div></div>
   <div class="card"><div class="k">Coerced args</div><div class="v yel" id="co">0</div></div>
+  <div class="card"><div class="k">Invalid args</div><div class="v red" id="iv">0</div></div>
   <div class="card"><div class="k">Input tokens</div><div class="v" id="pt">0</div></div>
   <div class="card"><div class="k">Output tokens</div><div class="v grn" id="ct">0</div></div>
   <div class="card"><div class="k">Total tokens</div><div class="v acc" id="tt">0</div></div>
@@ -920,6 +1026,7 @@ async function tick() {
     $('err').textContent = fmt(s.errors);
     $('tc').textContent  = fmt(s.tool_calls);
     $('co').textContent  = fmt(s.coerced_args);
+    $('iv').textContent  = fmt(s.invalid_args);
     const t = s.tokens || {};
     $('pt').textContent = fmt(t.prompt_tokens);
     $('ct').textContent = fmt(t.completion_tokens);
