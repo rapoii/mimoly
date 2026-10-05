@@ -224,7 +224,40 @@ https://www.bing.com/search?q=<query>&format=rss
 DuckDuckGo may be unreachable from some networks (20 s timeout); Bing/Google
 answer normally.
 
-### 4. Verify with the event stream, not the prose
+### 4. MCP tools never get called: JSON-type drift in tool arguments (fixed in the proxy)
+
+Running a realistic multi-turn *vibe-coder* session with every toolset enabled
+(see `examples/vibe_coder_turns.json` + `vibe_session.py`) showed the MCP servers
+looking dead — the model called `tool_search` / `tool_describe` a few times, got
+errors, gave up, and finished the whole task with `terminal`/`read_file`.
+
+Root cause is the upstream model, not the proxy: MiMo emits some tool arguments
+with the wrong JSON type. Reproduced 3/3 on a direct call:
+
+```
+tool_search arguments: {"queries": "[\"open browser\", \"take screenshot\"]"}   # string, not array
+tool_call   arguments: {"calls": [{"tool": "mcp__playwright__browser_navigate"}]}  # wants "name"
+```
+
+Hermes' `tool_search` rejects the stringified array and `tool_call` rejects the
+missing `name`, so the deferred-tool path collapses. Mimoly now repairs the
+arguments against the declared schema (`coerce_tool_args`): a stringified array
+becomes a real list, a bare string becomes a one-item list, `integer`/`boolean`
+strings are converted, and array-of-object item keys are renamed
+(`tool`/`function`/`id` → `name`). Streaming and non-streaming paths both use it.
+
+Verified end-to-end after the fix — playwright really drives a browser:
+
+```
+mcp__playwright__browser_navigate {"url": "https://example.com"}
+  → Page Title: Example Domain
+```
+
+Note the model still *prefers* `terminal` when ~250 tools are loaded at once;
+the fix removes the *blocker*, it does not force tool choice. Give a task a
+narrow toolset (`-t playwright`) when you want the MCP path used reliably.
+
+### 5. Verify with the event stream, not the prose
 
 The final answer can claim "no browser tools available" while the run actually
 worked. Use `--format stream-json` and count `tool_use` events — that is the
