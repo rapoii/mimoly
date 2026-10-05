@@ -1153,11 +1153,11 @@ if (typeof Chart === 'undefined') {
 
   <span class="label">Charts</span>
   <div class="grid chart-grid">
-    <div class="panel" style="--accent:var(--pink)">
+    <div class="panel" style="--accent:var(--yellow)">
       <h3>Finish reasons</h3>
       <div class="canvas-box"><canvas id="c-finish"></canvas></div>
     </div>
-    <div class="panel" style="--accent:var(--cyan)">
+    <div class="panel" style="--accent:var(--blue)">
       <h3>Token split</h3>
       <div class="canvas-box"><canvas id="c-tokens"></canvas></div>
     </div>
@@ -1273,8 +1273,8 @@ function mkLine(id) {
       },
       scales: {
         x: { grid: { display: false }, ticks: { font: { weight: '800', size: 10 } }, border: { width: 3 } },
-        y: { position: 'left', grid: { color: 'rgba(10,10,10,.10)' }, grace: '12%', ticks: { font: { weight: '800', size: 10 }, precision: 0 }, border: { width: 3 } },
-        y1: { position: 'right', grid: { display: false }, grace: '12%', ticks: { font: { weight: '800', size: 10 } }, border: { width: 3 } }
+        y: { position: 'left', min: 0, grid: { color: 'rgba(10,10,10,.10)' }, grace: '12%', ticks: { font: { weight: '800', size: 10 }, precision: 0 }, border: { width: 3 } },
+        y1: { position: 'right', min: 0, grid: { display: false }, grace: '12%', ticks: { font: { weight: '800', size: 10 } }, border: { width: 3 } }
       }
     }
   });
