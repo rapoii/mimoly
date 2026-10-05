@@ -955,93 +955,273 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mimoly stats</title>
+<title>mimoly dashboard</title>
 <style>
-  :root { --bg:#0d1117; --card:#161b22; --bd:#30363d; --fg:#e6edf3; --mut:#8b949e;
-          --acc:#58a6ff; --grn:#3fb950; --red:#f85149; --yel:#d29922; }
-  * { box-sizing:border-box; }
-  body { margin:0; font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-         background:var(--bg); color:var(--fg); padding:20px; }
-  h1 { font-size:18px; margin:0 0 4px; }
-  .sub { color:var(--mut); font-size:12px; margin-bottom:16px; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
-         background:var(--grn); margin-right:6px; animation:p 2s infinite; }
-  @keyframes p { 50% { opacity:.3; } }
-  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
-  .card { background:var(--card); border:1px solid var(--bd); border-radius:8px; padding:14px; }
-  .k { color:var(--mut); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
-  .v { font-size:24px; font-weight:600; margin-top:4px; }
-  .v.acc{color:var(--acc)} .v.grn{color:var(--grn)} .v.red{color:var(--red)} .v.yel{color:var(--yel)}
-  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
-  th,td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--bd); }
-  th { color:var(--mut); font-weight:500; font-size:11px; text-transform:uppercase; }
-  td.n { text-align:right; font-variant-numeric:tabular-nums; }
-  h2 { font-size:13px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px;
-       margin:22px 0 6px; }
-  .bar { height:6px; background:var(--bd); border-radius:3px; overflow:hidden; margin-top:6px; }
-  .bar > i { display:block; height:100%; background:var(--acc); }
-  .empty { color:var(--mut); font-style:italic; padding:8px; }
+  :root {
+    --bg: #0a0e14; --surface: #12171e; --card: #161c24; --bd: #252d38;
+    --fg: #d1d9e6; --fg2: #e8edf4; --mut: #6b7a8d;
+    --acc: #4d9eff; --grn: #34d058; --red: #ea4a5a; --yel: #e3b341;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--fg); min-height: 100vh;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 48px; }
+
+  /* ── Header ── */
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  header h1 { font-size: 20px; font-weight: 700; color: var(--fg2); letter-spacing: -.3px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+    padding: 3px 10px; border-radius: 20px;
+    background: rgba(52,208,88,.12); color: var(--grn);
+    transition: all .3s;
+  }
+  .badge.off { background: rgba(234,74,90,.12); color: var(--red); }
+  .badge i {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  }
+  .badge.on i { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .meta { color: var(--mut); font-size: 12px; margin-bottom: 24px; }
+
+  /* ── Section groups ── */
+  .section { margin-bottom: 20px; }
+  .section-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--mut); margin-bottom: 8px;
+    padding-left: 2px;
+  }
+
+  /* ── Card grid ── */
+  .g3 { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+  .g4 { display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); }
+  .g2 { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 640px) { .g3,.g4 { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 400px) { .g3,.g4,.g2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--bd);
+    border-radius: var(--radius); padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 2px;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: #3a4555; }
+  .card .label {
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--mut);
+  }
+  .card .val {
+    font-size: 28px; font-weight: 700; letter-spacing: -.5px;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg2); line-height: 1.2;
+  }
+  .card .unit { font-size: 12px; color: var(--mut); margin-top: 1px; }
+
+  /* Dynamic color: only light up when value > 0 */
+  .val[data-color="red"]    { color: var(--red); }
+  .val[data-color="yellow"] { color: var(--yel); }
+  .val[data-color="green"]  { color: var(--grn); }
+  .val[data-color="accent"] { color: var(--acc); }
+
+  /* ── Panels (tables) ── */
+  .panel {
+    background: var(--card); border: 1px solid var(--bd);
+    border-radius: var(--radius); padding: 16px 18px; margin-top: 0;
+  }
+  .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .panel th {
+    text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--mut); padding: 0 0 8px;
+    border-bottom: 1px solid var(--bd);
+  }
+  .panel th:last-child { text-align: right; }
+  .panel td { padding: 10px 0; border-bottom: 1px solid rgba(37,45,56,.5); }
+  .panel td:last-child { text-align: right; font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums; font-weight: 600; color: var(--fg2); }
+  .panel .bar-wrap {
+    height: 4px; background: var(--bd); border-radius: 2px;
+    overflow: hidden; margin-top: 4px;
+  }
+  .panel .bar-fill { height: 100%; background: var(--acc); border-radius: 2px;
+    transition: width .4s ease; }
+  .panel .empty-state {
+    color: var(--mut); font-size: 13px; text-align: center;
+    padding: 20px 0;
+  }
+
+  /* ── Footer ── */
+  .foot {
+    margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--bd);
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--mut);
+  }
+  .foot a { color: var(--acc); text-decoration: none; }
+  .foot a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
-<h1><span class="dot"></span>mimoly web2api</h1>
-<div class="sub" id="sub">connecting…</div>
+<div class="wrap">
 
-<div class="grid">
-  <div class="card"><div class="k">Requests</div><div class="v acc" id="req">0</div></div>
-  <div class="card"><div class="k">Errors</div><div class="v red" id="err">0</div></div>
-  <div class="card"><div class="k">Tool calls</div><div class="v" id="tc">0</div></div>
-  <div class="card"><div class="k">Coerced args</div><div class="v yel" id="co">0</div></div>
-  <div class="card"><div class="k">Invalid args</div><div class="v red" id="iv">0</div></div>
-  <div class="card"><div class="k">Input tokens</div><div class="v" id="pt">0</div></div>
-  <div class="card"><div class="k">Output tokens</div><div class="v grn" id="ct">0</div></div>
-  <div class="card"><div class="k">Total tokens</div><div class="v acc" id="tt">0</div></div>
-  <div class="card"><div class="k">Reasoning</div><div class="v" id="rt">0</div></div>
+<header>
+  <h1>mimoly</h1>
+  <span class="badge" id="badge"><i></i><span id="badge-text">connecting</span></span>
+</header>
+<div class="meta" id="meta">waiting for first poll&hellip;</div>
+
+<!-- ── Traffic ── -->
+<div class="section">
+  <div class="section-title">Traffic</div>
+  <div class="g3">
+    <div class="card">
+      <span class="label">Requests</span>
+      <span class="val" id="req">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Errors</span>
+      <span class="val" id="err">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Error rate</span>
+      <span class="val" id="erate">—</span>
+    </div>
+  </div>
 </div>
 
-<h2>Per-model tokens</h2>
-<div id="models"></div>
+<!-- ── Tool intelligence ── -->
+<div class="section">
+  <div class="section-title">Tool Intelligence</div>
+  <div class="g3">
+    <div class="card">
+      <span class="label">Tool calls</span>
+      <span class="val" id="tc">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Coerced args</span>
+      <span class="val" id="co">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Invalid args</span>
+      <span class="val" id="iv">—</span>
+    </div>
+  </div>
+</div>
 
-<h2>Tool usage</h2>
-<div id="tools"></div>
+<!-- ── Token usage ── -->
+<div class="section">
+  <div class="section-title">Token Usage</div>
+  <div class="g4">
+    <div class="card">
+      <span class="label">Input</span>
+      <span class="val" id="pt">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Output</span>
+      <span class="val" id="ct">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Total</span>
+      <span class="val" id="tt">—</span>
+    </div>
+    <div class="card">
+      <span class="label">Reasoning</span>
+      <span class="val" id="rt">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Breakdown tables ── -->
+<div class="section">
+  <div class="section-title">Breakdown</div>
+  <div class="g2">
+    <div class="panel" id="models"><div class="empty-state">No model data yet</div></div>
+    <div class="panel" id="tools"><div class="empty-state">No tool data yet</div></div>
+  </div>
+</div>
+
+<div class="foot">
+  <span>mimoly web2api &middot; <a href="/v1/stats">raw json</a></span>
+  <span id="foot-time"></span>
+</div>
+
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
-const fmt = n => (n||0).toLocaleString();
+const fmt = n => n == null ? '—' : n.toLocaleString();
 
-function bars(rows, unit) {
-  if (!rows.length) return '<div class="empty">no data yet</div>';
-  const max = Math.max(...rows.map(r => r[1]));
-  return '<table><tr><th>name</th><th style="text-align:right">' + unit + '</th><th></th></tr>' +
-    rows.map(([k,v]) =>
-      '<tr><td>' + k + '</td><td class="n">' + fmt(v) + '</td>' +
-      '<td style="width:40%"><div class="bar"><i style="width:' +
-      Math.max(2, v/max*100) + '%"></i></div></td></tr>').join('') + '</table>';
+function setVal(id, v, color, suffix) {
+  const el = $(id);
+  el.textContent = v == null ? '—' : fmt(v) + (suffix || '');
+  if (color && v > 0) el.setAttribute('data-color', color);
+  else el.removeAttribute('data-color');
 }
 
+function buildTable(rows, nameLabel, countLabel) {
+  if (!rows.length) return '<div class="empty-state">No data yet</div>';
+  const max = Math.max(...rows.map(r => r[1]), 1);
+  let h = '<table><tr><th>' + nameLabel + '</th><th>' + countLabel + '</th></tr>';
+  for (const [name, val] of rows) {
+    const pct = Math.max(3, (val / max) * 100);
+    h += '<tr><td>' + name +
+      '<div class="bar-wrap"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
+      '</td><td>' + fmt(val) + '</td></tr>';
+  }
+  return h + '</table>';
+}
+
+function uptime(sec) {
+  if (!sec) return '0s';
+  const d = Math.floor(sec/86400), h = Math.floor(sec%86400/3600),
+        m = Math.floor(sec%3600/60), s = Math.floor(sec%60);
+  if (d) return d + 'd ' + h + 'h';
+  if (h) return h + 'h ' + m + 'm';
+  return m + 'm ' + s + 's';
+}
+
+let alive = false;
 async function tick() {
   try {
     const s = await (await fetch('/v1/stats')).json();
-    $('req').textContent = fmt(s.requests);
-    $('err').textContent = fmt(s.errors);
-    $('tc').textContent  = fmt(s.tool_calls);
-    $('co').textContent  = fmt(s.coerced_args);
-    $('iv').textContent  = fmt(s.invalid_args);
+    if (!alive) {
+      alive = true;
+      $('badge').className = 'badge on';
+      $('badge-text').textContent = 'live';
+    }
+
+    setVal('req', s.requests, 'accent');
+    setVal('err', s.errors, 'red');
+    const rate = s.requests > 0 ? ((s.errors / s.requests) * 100) : 0;
+    setVal('erate', Math.round(rate * 10) / 10, rate > 5 ? 'red' : rate > 0 ? 'yellow' : null, '%');
+
+    setVal('tc', s.tool_calls);
+    setVal('co', s.coerced_args, 'yellow');
+    setVal('iv', s.invalid_args, 'red');
+
     const t = s.tokens || {};
-    $('pt').textContent = fmt(t.prompt_tokens);
-    $('ct').textContent = fmt(t.completion_tokens);
-    $('tt').textContent = fmt(t.total_tokens);
-    $('rt').textContent = fmt(t.reasoning_tokens);
-    $('sub').textContent = 'up ' + Math.floor((s.uptime_seconds||0)/60) + 'm ' +
-      Math.floor((s.uptime_seconds||0)%60) + 's · live · ' +
-      new Date().toLocaleTimeString();
+    setVal('pt', t.prompt_tokens);
+    setVal('ct', t.completion_tokens, 'green');
+    setVal('tt', t.total_tokens, 'accent');
+    setVal('rt', t.reasoning_tokens);
+
+    $('meta').textContent = 'up ' + uptime(s.uptime_seconds) +
+      ' \u00b7 ' + fmt(s.requests) + ' req \u00b7 ' + fmt(t.total_tokens) + ' tok';
 
     const mt = s.model_tokens || {};
-    const rows = Object.entries(mt).map(([m,v]) => [m, v.total_tokens]);
-    $('models').innerHTML = bars(rows, 'tokens');
-    $('tools').innerHTML  = bars(Object.entries(s.tool_usage||{}), 'calls');
+    const mRows = Object.entries(mt).map(([m, v]) => [m, v.total_tokens]);
+    $('models').innerHTML = buildTable(mRows, 'Model', 'Tokens');
+    $('tools').innerHTML  = buildTable(Object.entries(s.tool_usage || {}), 'Tool', 'Calls');
+
+    $('foot-time').textContent = new Date().toLocaleTimeString();
   } catch (e) {
-    $('sub').innerHTML = '<span style="color:#f85149">disconnected</span> · ' + e;
+    alive = false;
+    $('badge').className = 'badge off';
+    $('badge-text').textContent = 'offline';
+    $('meta').innerHTML = '<span style="color:var(--red)">connection lost</span>';
   }
 }
 tick();
