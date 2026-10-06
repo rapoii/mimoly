@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI, Request, Response, UploadFile, File, Form
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
     import httpx
@@ -197,6 +197,34 @@ MODEL_ALIASES = {
     "mimo-v2-flash": "mimo-v2.6-flash",
     "mimo-v2.1-omni": "mimo-v2.6-flash",
     "mimo-flash": "mimo-v2.6-flash",
+}
+
+VOICE_MAP = {
+    # OpenAI standard voice aliases mapped to Xiaomi MiMo TTS voices
+    "alloy": "Mia",
+    "echo": "Dean",
+    "fable": "Chloe",
+    "onyx": "Milo",
+    "nova": "bingtang",
+    "shimmer": "moli",
+    # English names
+    "mia": "Mia",
+    "chloe": "Chloe",
+    "milo": "Milo",
+    "dean": "Dean",
+    "bingtang": "冰糖",
+    "moli": "茉莉",
+    "suda": "苏打",
+    "baihua": "白桦",
+    # Chinese names
+    "冰糖": "冰糖",
+    "茉莉": "茉莉",
+    "苏打": "苏打",
+    "白桦": "白桦",
+    "Mia": "Mia",
+    "Chloe": "Chloe",
+    "Milo": "Milo",
+    "Dean": "Dean",
 }
 
 
@@ -932,6 +960,335 @@ def convert_openai_to_anthropic_response(openai_body: dict, model: str, msg_id: 
     }
 
 
+def convert_responses_request_to_chat(body: dict) -> dict:
+    """Convert OpenAI Responses API request format to Chat Completions request format."""
+    model = body.get("model", "mimo-v2.6-pro")
+    messages = []
+
+    instructions = body.get("instructions")
+    if instructions:
+        messages.append({"role": "system", "content": instructions})
+
+    inp = body.get("input", "")
+    if isinstance(inp, str):
+        if inp:
+            messages.append({"role": "user", "content": inp})
+    elif isinstance(inp, list):
+        for item in inp:
+            if isinstance(item, dict):
+                r = item.get("role") or item.get("type", "user")
+                c = item.get("content", "")
+                if r in ("system", "user", "assistant", "tool"):
+                    messages.append({"role": r, "content": c})
+                elif item.get("type") == "message":
+                    messages.append({"role": item.get("role", "user"), "content": c})
+                elif item.get("type") == "function_call_output":
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": item.get("call_id", ""),
+                        "content": str(item.get("output", ""))
+                    })
+            elif isinstance(item, str):
+                messages.append({"role": "user", "content": item})
+
+    chat_body = {
+        "model": model,
+        "messages": messages,
+        "stream": body.get("stream", False),
+        "temperature": body.get("temperature"),
+        "top_p": body.get("top_p"),
+    }
+    tools = body.get("tools")
+    if tools:
+        chat_tools = []
+        for t in tools:
+            if isinstance(t, dict):
+                if t.get("type") == "function" and "function" in t:
+                    chat_tools.append(t)
+                elif "name" in t:
+                    chat_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": t.get("name"),
+                            "description": t.get("description", ""),
+                            "parameters": t.get("parameters") or t.get("input_schema", {})
+                        }
+                    })
+        if chat_tools:
+            chat_body["tools"] = chat_tools
+
+    return chat_body
+
+
+def convert_chat_to_responses_output(chat_resp: dict, model: str) -> dict:
+    """Convert OpenAI Chat Completions response to OpenAI Responses API output format."""
+    resp_id = f"resp_{uuid.uuid4().hex[:20]}"
+    created_at = chat_resp.get("created", int(time.time()))
+    choices = chat_resp.get("choices", [{}])
+    choice = choices[0] if choices else {}
+    message = choice.get("message", {})
+
+    content = message.get("content", "") or ""
+    tool_calls = message.get("tool_calls", [])
+
+    output_items = []
+    if content:
+        output_items.append({
+            "type": "message",
+            "id": f"msg_{uuid.uuid4().hex[:20]}",
+            "role": "assistant",
+            "content": [{"type": "text", "text": content}]
+        })
+
+    if tool_calls:
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            output_items.append({
+                "type": "function_call",
+                "id": tc.get("id", f"call_{uuid.uuid4().hex[:16]}"),
+                "call_id": tc.get("id", f"call_{uuid.uuid4().hex[:16]}"),
+                "name": fn.get("name", ""),
+                "arguments": fn.get("arguments", "{}")
+            })
+
+    return {
+        "id": resp_id,
+        "object": "response",
+        "created_at": created_at,
+        "status": "completed",
+        "model": model,
+        "output": output_items,
+        "usage": chat_resp.get("usage", {})
+    }
+
+
+_COOKIE_HEALTH: Dict[str, Any] = {
+    "valid": True,
+    "status": "unverified",
+    "last_checked": 0,
+    "message": ""
+}
+
+
+async def check_cookie_health(cookies: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Probe Xiaomi upstream to verify if session cookies are active or expired."""
+    global _COOKIE_HEALTH
+    if cookies is None:
+        try:
+            cookies = get_session_cookies()
+        except Exception as e:
+            _COOKIE_HEALTH = {
+                "valid": False,
+                "status": "missing",
+                "last_checked": int(time.time()),
+                "message": str(e)
+            }
+            return _COOKIE_HEALTH
+
+    ph = cookies.get("xiaomichatbot_ph", "")
+    if not ph:
+        _COOKIE_HEALTH = {
+            "valid": False,
+            "status": "missing_ph",
+            "last_checked": int(time.time()),
+            "message": "Missing xiaomichatbot_ph in session"
+        }
+        return _COOKIE_HEALTH
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://aistudio.xiaomimimo.com/",
+        "Origin": "https://aistudio.xiaomimimo.com"
+    }
+    url = f"https://aistudio.xiaomimimo.com/open-apis/bot/config?xiaomichatbot_ph={urllib.parse.quote(ph)}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers=headers, cookies=cookies)
+            if resp.status_code == 200:
+                _COOKIE_HEALTH = {
+                    "valid": True,
+                    "status": "active",
+                    "last_checked": int(time.time()),
+                    "message": "Session cookies valid and active"
+                }
+            elif resp.status_code in (401, 403):
+                _COOKIE_HEALTH = {
+                    "valid": False,
+                    "status": "expired",
+                    "last_checked": int(time.time()),
+                    "message": f"Session expired (HTTP {resp.status_code}). Please refresh session.json via 'python mimoly.py login'"
+                }
+                print(f"[mimoly] [HARVESTER ALERT] {_COOKIE_HEALTH['message']}")
+            else:
+                _COOKIE_HEALTH = {
+                    "valid": False,
+                    "status": f"http_{resp.status_code}",
+                    "last_checked": int(time.time()),
+                    "message": f"Upstream returned HTTP {resp.status_code}"
+                }
+    except Exception as e:
+        _COOKIE_HEALTH = {
+            "valid": False,
+            "status": "connection_error",
+            "last_checked": int(time.time()),
+            "message": str(e)
+        }
+
+    return _COOKIE_HEALTH
+
+
+async def tts_generate_audio(
+    text: str,
+    voice: str = "alloy",
+    model: str = "mimo-v2.5-tts",
+    cookies: Optional[dict] = None
+) -> bytes:
+    """Generate speech audio via Xiaomi TTS backend."""
+    if cookies is None:
+        cookies = get_session_cookies()
+    ph = cookies.get("xiaomichatbot_ph", "")
+    mimo_voice = VOICE_MAP.get(voice, "default_zh")
+
+    conversation_id = uuid.uuid4().hex[:32]
+    msg_id = uuid.uuid4().hex[:32]
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://aistudio.xiaomimimo.com/",
+        "Origin": "https://aistudio.xiaomimimo.com"
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        save_url = f"https://aistudio.xiaomimimo.com/open-apis/chat/conversation/save?xiaomichatbot_ph={urllib.parse.quote(ph)}"
+        await client.post(
+            save_url,
+            headers=headers,
+            cookies=cookies,
+            json={"conversationId": conversation_id, "title": "TTS", "type": "tts"}
+        )
+
+        gen_url = f"https://aistudio.xiaomimimo.com/open-apis/tts/v2/generate?xiaomichatbot_ph={urllib.parse.quote(ph)}"
+        payload = {
+            "conversationId": conversation_id,
+            "msgId": msg_id,
+            "content": {
+                "messages": [
+                    {"role": "user", "content": ""},
+                    {"role": "assistant", "content": text}
+                ],
+                "audio": {"format": "wav", "voice": mimo_voice}
+            },
+            "modelConfig": {"modelCode": "mimo-v2.5-tts", "scene": "BRIEF_DESCRIPTION"}
+        }
+        res = await client.post(gen_url, headers=headers, cookies=cookies, json=payload)
+        if res.status_code != 200:
+            raise RuntimeError(f"TTS request failed HTTP {res.status_code}: {res.text}")
+        data = res.json()
+        if data.get("code") != 0 or not data.get("data"):
+            raise RuntimeError(f"TTS error: {data.get('msg', 'unknown error')}")
+        task_id = data["data"].get("taskId")
+
+        status_url = f"https://aistudio.xiaomimimo.com/open-apis/tts/generateStatus?xiaomichatbot_ph={urllib.parse.quote(ph)}&taskId={urllib.parse.quote(str(task_id))}"
+        audio_url = None
+        for _ in range(45):
+            await asyncio.sleep(1.0)
+            st_res = await client.get(status_url, headers=headers, cookies=cookies)
+            if st_res.status_code == 200:
+                st_data = st_res.json()
+                if st_data.get("code") == 0 and st_data.get("data"):
+                    st = st_data["data"].get("status")
+                    if st == "success":
+                        audio_url = st_data["data"].get("audioUrl")
+                        break
+                    elif st == "failed":
+                        raise RuntimeError("TTS generation failed upstream")
+
+        if not audio_url:
+            raise TimeoutError("TTS generation timed out waiting for audio URL")
+
+        dl_res = await client.get(audio_url)
+        return dl_res.content
+
+
+async def asr_transcribe_audio(
+    audio_bytes: bytes,
+    filename: str = "audio.wav",
+    language: str = "auto",
+    cookies: Optional[dict] = None
+) -> str:
+    """Transcribe audio via Xiaomi ASR backend."""
+    if cookies is None:
+        cookies = get_session_cookies()
+    ph = cookies.get("xiaomichatbot_ph", "")
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://aistudio.xiaomimimo.com/",
+        "Origin": "https://aistudio.xiaomimimo.com"
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        info_res = await client.post(
+            f"https://aistudio.xiaomimimo.com/open-apis/resource/genUploadInfo?xiaomichatbot_ph={urllib.parse.quote(ph)}",
+            headers=headers,
+            cookies=cookies,
+            json={"fileName": filename}
+        )
+        info_data = info_res.json()
+        if info_data.get("code") != 0 or not info_data.get("data"):
+            raise RuntimeError(f"ASR genUploadInfo failed: {info_data}")
+
+        upload_url = info_data["data"]["uploadUrl"]
+        resource_url = info_data["data"]["resourceUrl"]
+
+        put_res = await client.put(upload_url, content=audio_bytes, headers={"Content-Type": "application/octet-stream"})
+        if put_res.status_code != 200:
+            raise RuntimeError(f"ASR PUT failed: {put_res.status_code}")
+
+        conv_id = uuid.uuid4().hex[:32]
+        msg_id = uuid.uuid4().hex[:32]
+        await client.post(
+            f"https://aistudio.xiaomimimo.com/open-apis/chat/conversation/save?xiaomichatbot_ph={urllib.parse.quote(ph)}",
+            headers=headers,
+            cookies=cookies,
+            json={"conversationId": conv_id, "title": "ASR", "type": "asr"}
+        )
+
+        rec_res = await client.post(
+            f"https://aistudio.xiaomimimo.com/open-apis/asr/recognize?xiaomichatbot_ph={urllib.parse.quote(ph)}",
+            headers=headers,
+            cookies=cookies,
+            json={
+                "conversationId": conv_id,
+                "msgId": msg_id,
+                "audioUrl": resource_url,
+                "language": language,
+                "modelConfig": {"modelCode": "mimo-v2.5-asr"}
+            }
+        )
+        rec_data = rec_res.json()
+        if rec_data.get("code") != 0 or not rec_data.get("data"):
+            raise RuntimeError(f"ASR recognize failed: {rec_data}")
+        task_id = rec_data["data"].get("taskId")
+
+        st_url = f"https://aistudio.xiaomimimo.com/open-apis/asr/recognizeStatus?xiaomichatbot_ph={urllib.parse.quote(ph)}&taskId={urllib.parse.quote(str(task_id))}"
+        for _ in range(45):
+            await asyncio.sleep(1.0)
+            st_res = await client.get(st_url, headers=headers, cookies=cookies)
+            if st_res.status_code == 200:
+                sdata = st_res.json()
+                if sdata.get("code") == 0 and sdata.get("data"):
+                    st = sdata["data"].get("status")
+                    if st == "success":
+                        return sdata["data"].get("text", "")
+                    elif st == "failed":
+                        raise RuntimeError("ASR recognition failed upstream")
+
+        raise TimeoutError("ASR recognition timed out")
+
+
 def detect_agent_framework(request: Request, body: dict) -> str:
     """Detect which agent framework is calling, from header > body > env."""
     framework = request.headers.get("X-Agent-Framework", "").lower().strip()
@@ -1587,14 +1944,24 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     return calls, reply_text
 
 
+@app.on_event("startup")
+async def on_startup():
+    try:
+        asyncio.create_task(check_cookie_health())
+    except Exception:
+        pass
+
+
 @app.get("/")
 @app.get("/health")
 async def health():
+    cookie_status = _COOKIE_HEALTH.get("status", "unknown")
     return {
         "status": "ok",
         "service": "mimoly-web2api",
         "version": "3.0.0",
-        "auth_configured": SESSION_FILE.exists()
+        "auth_configured": SESSION_FILE.exists(),
+        "cookie_health": cookie_status
     }
 
 
@@ -2198,6 +2565,84 @@ async def anthropic_messages(request: Request):
                 return resp
         return resp
     return resp
+
+
+@app.post("/v1/responses")
+async def openai_responses(request: Request):
+    """OpenAI Responses API endpoint (/v1/responses)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    chat_body = convert_responses_request_to_chat(body)
+    model = chat_body.get("model", "mimo-v2.6-pro")
+    stream = chat_body.get("stream", False)
+
+    resp = await handle_chat_completion(chat_body, request)
+    if not stream:
+        if isinstance(resp, dict):
+            if "error" in resp:
+                return JSONResponse({"error": str(resp["error"])}, status_code=400)
+            return JSONResponse(convert_chat_to_responses_output(resp, model))
+        elif isinstance(resp, JSONResponse):
+            try:
+                data = json.loads(resp.body.decode("utf-8"))
+                if "error" in data:
+                    return resp
+                return JSONResponse(convert_chat_to_responses_output(data, model))
+            except Exception:
+                return resp
+        return resp
+    return resp
+
+
+@app.post("/v1/audio/speech")
+async def audio_speech(request: Request):
+    """OpenAI-compatible Text-To-Speech endpoint (/v1/audio/speech)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    text = body.get("input", "")
+    if not text:
+        return JSONResponse({"error": "'input' text is required"}, status_code=400)
+
+    voice = body.get("voice", "alloy")
+    model = body.get("model", "mimo-v2.5-tts")
+
+    try:
+        audio_bytes = await tts_generate_audio(text, voice=voice, model=model)
+        return Response(content=audio_bytes, media_type="audio/wav")
+    except Exception as e:
+        print(f"[mimoly] TTS error: {e}")
+        return JSONResponse({"error": f"TTS generation failed: {e}"}, status_code=502)
+
+
+@app.post("/v1/audio/transcriptions")
+async def audio_transcriptions(request: Request):
+    """OpenAI Whisper-compatible Speech-To-Text endpoint (/v1/audio/transcriptions)."""
+    try:
+        form = await request.form()
+        file = form.get("file")
+        if not file:
+            return JSONResponse({"error": "Audio file 'file' is required"}, status_code=400)
+        audio_bytes = await file.read()
+        if not audio_bytes:
+            return JSONResponse({"error": "Audio file is empty"}, status_code=400)
+
+        filename = getattr(file, "filename", "audio.wav") or "audio.wav"
+        language = str(form.get("language", "auto"))
+        response_format = str(form.get("response_format", "json"))
+        text = await asr_transcribe_audio(audio_bytes, filename=filename, language=language)
+
+        if response_format == "text":
+            return Response(content=text, media_type="text/plain")
+        return JSONResponse({"text": text})
+    except Exception as e:
+        print(f"[mimoly] ASR error: {e}")
+        return JSONResponse({"error": f"ASR transcription failed: {e}"}, status_code=502)
 
 
 async def handle_chat_completion(body: dict, request: Request):

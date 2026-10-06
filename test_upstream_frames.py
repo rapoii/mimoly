@@ -820,6 +820,68 @@ def main():
         u_ultra, s_ultra = m.get_upstream_endpoints("mimo-v2.6-pro-ultraspeed-studio", "dummy_ph")
         check("ultraspeed routes to /fastchat cluster", "/fastchat/open-apis/bot/chat" in u_ultra and "/fastchat/open-apis/chat/conversation/save" in s_ultra)
 
+    # ------------------------------------------------------------------
+    # [unit] TTS & ASR audio capabilities
+    # ------------------------------------------------------------------
+    print("[unit] TTS & ASR audio capabilities")
+
+    check("VOICE_MAP exists", hasattr(m, "VOICE_MAP"))
+    if hasattr(m, "VOICE_MAP"):
+        check("VOICE_MAP maps alloy", m.VOICE_MAP.get("alloy") == "Mia")
+        check("VOICE_MAP maps echo", m.VOICE_MAP.get("echo") == "Dean")
+        check("VOICE_MAP preserves native voices", m.VOICE_MAP.get("Mia") == "Mia" and m.VOICE_MAP.get("bingtang") == "冰糖")
+
+    # ------------------------------------------------------------------
+    # [unit] Harvester cookie health & auto-probe
+    # ------------------------------------------------------------------
+    print("[unit] harvester cookie health")
+
+    check("check_cookie_health helper exists", hasattr(m, "check_cookie_health"))
+
+    # ------------------------------------------------------------------
+    # [unit] OpenAI Responses API compatibility (/v1/responses)
+    # ------------------------------------------------------------------
+    print("[unit] openai responses API compatibility")
+
+    check("convert_responses_request_to_chat helper exists", hasattr(m, "convert_responses_request_to_chat"))
+    check("convert_chat_to_responses_output helper exists", hasattr(m, "convert_chat_to_responses_output"))
+
+    if hasattr(m, "convert_responses_request_to_chat"):
+        resp_req = {
+            "model": "mimo-v2.6-pro",
+            "instructions": "Be very concise.",
+            "input": "Halo dunia",
+            "tools": [{"type": "function", "name": "get_weather", "parameters": {}}]
+        }
+        converted_chat = m.convert_responses_request_to_chat(resp_req)
+        check("responses instructions converted to system role", converted_chat["messages"][0]["role"] == "system" and converted_chat["messages"][0]["content"] == "Be very concise.")
+        check("responses string input converted to user message", converted_chat["messages"][1]["role"] == "user" and converted_chat["messages"][1]["content"] == "Halo dunia")
+        check("responses tool converted to function", converted_chat.get("tools") and converted_chat["tools"][0]["function"]["name"] == "get_weather")
+
+    if hasattr(m, "convert_chat_to_responses_output"):
+        mock_chat_completion = {
+            "id": "chatcmpl-test99",
+            "created": 1791300000,
+            "model": "mimo-v2.6-pro",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Suhu 28C",
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "function": {"name": "get_weather", "arguments": "{\"city\": \"Jakarta\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+        }
+        res_out = m.convert_chat_to_responses_output(mock_chat_completion, "mimo-v2.6-pro")
+        check("responses output object is response", res_out.get("object") == "response" and res_out.get("status") == "completed")
+        check("responses output has items list", isinstance(res_out.get("output"), list))
+        out_types = [item.get("type") for item in res_out.get("output", [])]
+        check("responses output includes message and function_call", "message" in out_types and "function_call" in out_types)
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
