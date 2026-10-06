@@ -743,27 +743,70 @@ def validate_tool_args(name: str, args: dict,
     return {"valid": not issues, "issues": issues}
 
 
-def coerce_tool_args(name: str, args: dict, available_tools: Optional[List[Dict[str, Any]]] = None) -> dict:
-    """Repair tool arguments whose JSON type drifted from the declared schema.
+TOOL_PARAM_ALIASES = {
+    # File tools (read_file, write_file, patch)
+    "path": ["file", "filename", "filepath", "target", "path_to_file", "file_path", "target_file", "path_name"],
+    "content": ["text", "body", "data", "file_content", "contents", "code_to_write", "source_code"],
+    "code": ["script", "python", "command", "cmd", "code_snippet", "input", "py", "source"],
+    "pattern": ["query", "regex", "search", "keyword", "term", "filter", "search_term"],
+    "old_string": ["old_code", "find", "search", "original", "old", "target_string", "before", "match"],
+    "new_string": ["new_code", "replace", "replacement", "updated", "new", "replacement_string", "after"],
+    "command": ["cmd", "script", "shell_command", "bash", "sh"],
+    # Discovery & introspection
+    "queries": ["query", "searches", "search_queries", "keywords"],
+    "names": ["name", "tool_names", "tools"],
+    "calls": ["call", "invocations", "tool_calls"],
+    # Web & Browser tools (Playwright MCP)
+    "url": ["link", "href", "address", "target_url", "uri"],
+    "selector": ["element", "target", "locator", "css", "xpath", "query", "target_element"],
+    "expression": ["code", "script", "js", "function", "expr", "eval_code"],
+}
 
-    MiMo (the upstream model) sometimes emits a parameter that *should* be an
-    array/object/number/boolean as a JSON *string* — e.g. ``queries='["a","b"]'``
-    instead of ``queries=["a","b"]``. Hermes' ``tool_search``/``tool_describe``
-    then reject the call (``requires a 'name'`` / ``not_found``), the model gives
-    up on the tool, and the MCP toolset is never actually used. We coerce the
-    value back to the type the schema declares (recursively) so the call survives.
-    """
-    if not isinstance(args, dict) or not available_tools:
+
+def coerce_tool_args(name: str, args: dict, available_tools: Optional[List[Dict[str, Any]]] = None) -> dict:
+    """Repair tool arguments whose JSON type or field names drifted from the declared schema."""
+    if not isinstance(args, dict):
         return args
 
     snapshot = repr(args)  # cheap before-snapshot for coercion detection
-    schema = _schema_for(name, available_tools)
+    schema = _schema_for(name, available_tools) if available_tools else None
     if not isinstance(schema, dict):
         return args
 
-    for key, spec in (schema.get("properties") or {}).items():
+    props = schema.get("properties") or {}
+    required = schema.get("required") or []
+
+    # 1. Alias healing for missing required and property fields
+    for target_key in set(required) | set(props.keys()):
+        if target_key not in args:
+            alt_candidates = TOOL_PARAM_ALIASES.get(target_key, [])
+            for alt in alt_candidates:
+                if alt in args and alt not in props:
+                    args[target_key] = args.pop(alt)
+                    break
+
+    # 2. Single-required property fallback:
+    # If the schema requires exactly 1 field and args has only 1 field not matching the schema,
+    # map that lone argument to the required field.
+    if len(required) == 1:
+        req_field = required[0]
+        if req_field not in args and len(args) == 1:
+            lone_key = list(args.keys())[0]
+            if lone_key not in props:
+                args[req_field] = args.pop(lone_key)
+
+    # 3. Type coercion against schema properties
+    for key, spec in props.items():
         if key in args and isinstance(spec, dict):
             args[key] = _coerce_value(args[key], spec)
+
+    # 4. If a field requires array of objects (like tool_call's `calls`), ensure it is a list
+    # and if caller provided a single dict, wrap it.
+    for key, spec in props.items():
+        if key in args and isinstance(spec, dict):
+            types = _type_list(spec)
+            if "array" in types and isinstance(args[key], dict):
+                args[key] = [args[key]]
 
     if repr(args) != snapshot:
         _STATS["coerced_args"] += 1
@@ -808,6 +851,15 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
         if m_p:
             args["path"] = m_p.group(1)
 
+    # Auto-repair for write_file where model put top-level JSON fields directly into args (A11)
+    if name == "write_file" and "content" not in args:
+        if "path" in args:
+            other_keys = {k: v for k, v in args.items() if k != "path"}
+            if other_keys:
+                args["content"] = json.dumps(other_keys, indent=2)
+                for k in list(other_keys.keys()):
+                    args.pop(k, None)
+
     # Path normalization for file tools (generic & portable)
     if "path" in args and isinstance(args["path"], str):
         p = args["path"].replace("\\", "/").strip()
@@ -839,7 +891,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     # 1. Cek explicit JSON or XML tool_calls
     # Pola 1A: XML-style <function=name> / <invoke name="name"> / <function name="name">
     xml_matches = re.findall(
-        r"<(?:function|invoke)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</(?:function|invoke)>",
+        r"<(?:function|invoke)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)(?:</(?:function|invoke)>|$)",
         reply_text,
     )
     if xml_matches:
@@ -857,7 +909,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                     pass
             if not params:
                 param_matches = re.findall(
-                    r"<(?:parameter|param)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)</(?:parameter|param)>",
+                    r"<(?:parameter|param)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)(?:</(?:parameter|param)>|$)",
                     params_str,
                 )
                 for p_name, p_val in param_matches:
@@ -1784,6 +1836,10 @@ async def chat_completions(request: Request):
                                 async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                                     if resp.status_code != 200:
                                         err_text = await resp.aread()
+                                        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2 and (tools or not accumulated_chunks):
+                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code}, retrying attempt {attempt+1}/3...")
+                                            await asyncio.sleep(1.5 * (attempt + 1))
+                                            continue
                                         err_chunk = {
                                             "id": completion_id,
                                             "object": "chat.completion.chunk",
@@ -1805,17 +1861,24 @@ async def chat_completions(request: Request):
                                         yield "data: [DONE]\n\n"
                                         return
 
-                                    async for line in resp.aiter_lines():
+                                    line_iter = resp.aiter_lines().__aiter__()
+                                    while True:
+                                        try:
+                                            line = await asyncio.wait_for(line_iter.__anext__(), timeout=10.0)
+                                        except asyncio.TimeoutError:
+                                            # Send SSE comment ping to prevent reverse proxies/clients timing out during deep reasoning
+                                            yield ": keep-alive\n\n"
+                                            continue
+                                        except StopAsyncIteration:
+                                            break
+
                                         if not line:
                                             continue
-                                        if line.startswith("data:"):
-                                            print(f"[mimoly sse]: {line[:100]}")
                                         if not line.startswith("data:"):
                                             continue
 
                                         data_str = line[5:].strip()
                                         if "[DONE]" in data_str:
-                                            print("[mimoly sse] Detected [DONE] marker")
                                             break
 
                                         try:
@@ -1938,6 +2001,11 @@ async def chat_completions(request: Request):
                                                 }
                                                 yield f"data: {json.dumps(chunk)}\n\n"
                                                 accumulated_chunks.append(clean_piece)
+                            if tools and "服务器繁忙" in "".join(accumulated_chunks) and attempt < 2:
+                                print(f"[mimoly] Upstream stream busy ('服务器繁忙'), retrying attempt {attempt+1}/3...")
+                                accumulated_chunks.clear()
+                                await asyncio.sleep(2.0)
+                                continue
                             break
                         except Exception as conn_err:
                             if attempt == 2:
@@ -2129,6 +2197,10 @@ async def chat_completions(request: Request):
                     async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:
                             err_body = await resp.aread()
+                            if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                                print(f"[mimoly] Upstream HTTP {resp.status_code}, retrying attempt {attempt+1}/3...")
+                                await asyncio.sleep(1.5 * (attempt + 1))
+                                continue
                             _STATS["errors"] += 1
                             _record_timeline(errors=1)
                             _record_finish_reason("error")
@@ -2177,6 +2249,12 @@ async def chat_completions(request: Request):
                                 continue
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
+
+                if "服务器繁忙" in "".join(accumulated_chunks) and attempt < 2:
+                    print(f"[mimoly] Upstream server busy ('服务器繁忙'), retrying attempt {attempt+1}/3...")
+                    accumulated_chunks.clear()
+                    await asyncio.sleep(2.0)
+                    continue
                 break
             except Exception as conn_err:
                 if attempt == 2:

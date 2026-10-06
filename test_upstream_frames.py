@@ -612,6 +612,54 @@ def main():
         check(f"zero hardcoded '{forbidden}' in source", forbidden not in _src,
               f"found '{forbidden}' in {MIMOLY}")
 
+    # ------------------------------------------------------------------
+    # [unit] auto-healing and schema drift recovery (A11, A12, A38, A39)
+    # ------------------------------------------------------------------
+    print("[unit] tool argument auto-healing & schema drift recovery")
+    mock_tools = [
+        {"type": "function", "function": {
+            "name": "execute_code",
+            "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}
+        }},
+        {"type": "function", "function": {
+            "name": "write_file",
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}
+        }},
+        {"type": "function", "function": {
+            "name": "tool_call",
+            "parameters": {"type": "object", "properties": {"calls": {"type": "array", "items": {"type": "object"}}}, "required": ["calls"]}
+        }},
+        {"type": "function", "function": {
+            "name": "browser_evaluate",
+            "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}
+        }}
+    ]
+
+    # Test 1: execute_code heals 'command' -> 'code'
+    healed_exec = m.coerce_tool_args("execute_code", {"command": "print(123)"}, mock_tools)
+    check("execute_code alias healed command->code", healed_exec.get("code") == "print(123)", f"got {healed_exec}")
+
+    # Test 2: write_file heals 'filepath' -> 'path' and 'text' -> 'content'
+    healed_write = m.coerce_tool_args("write_file", {"filepath": "foo.txt", "text": "hello"}, mock_tools)
+    check("write_file alias healed filepath & text", healed_write.get("path") == "foo.txt" and healed_write.get("content") == "hello", f"got {healed_write}")
+
+    # Test 3: write_file recovers top-level JSON fields when content is missing (A11)
+    healed_pkg = m.normalize_tool_args("write_file", {"path": "package.json", "name": "my-pkg", "version": "1.0"}, "", mock_tools)
+    check("write_file recovers top-level json fields into content", "my-pkg" in healed_pkg.get("content", ""), f"got {healed_pkg}")
+
+    # Test 4: tool_call wraps dict into list for array parameter
+    healed_call = m.coerce_tool_args("tool_call", {"calls": {"name": "test", "arguments": {}}}, mock_tools)
+    check("tool_call wraps dict into list for calls", isinstance(healed_call.get("calls"), list), f"got {healed_call}")
+
+    # Test 5: browser_evaluate heals 'script' -> 'expression'
+    healed_eval = m.coerce_tool_args("browser_evaluate", {"script": "1+1"}, mock_tools)
+    check("browser_evaluate heals script->expression", healed_eval.get("expression") == "1+1", f"got {healed_eval}")
+
+    # Test 6: Unclosed XML tags recovery (A38)
+    unclosed_reply = "<tool_call>\n<function=execute_code>\n<parameter=code>import sys; print(sys.version)"
+    calls_recovered, clean_recovered = m.smart_extract_tool_calls(unclosed_reply, "", mock_tools)
+    check("unclosed tool_call xml recovered", len(calls_recovered) == 1 and calls_recovered[0]["name"] == "execute_code", f"got {calls_recovered}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
