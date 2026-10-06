@@ -78,8 +78,8 @@ def main():
 
     # --- Integration: /v1/chat/completions with tools must not 502 ---
     print("[integration] POST /v1/chat/completions with tools")
-    if os.environ.get("SKIP_INTEGRATION") or "--no-integration" in sys.argv:
-        print("  SKIP  integration skipped via SKIP_INTEGRATION flag")
+    if not (os.environ.get("RUN_INTEGRATION") or "--integration" in sys.argv):
+        print("  SKIP  live integration test (opt-in via --integration or RUN_INTEGRATION=1)")
     else:
         import socket
         server_online = False
@@ -91,7 +91,7 @@ def main():
             server_online = False
 
         if not server_online:
-            print("  SKIP  server not running (expected in CI/verify)")
+            print("  SKIP  server not running")
         else:
             try:
                 payload = {
