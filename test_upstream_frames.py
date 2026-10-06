@@ -12,7 +12,9 @@ Run:  .venv/Scripts/python.exe test_upstream_frames.py
 """
 import importlib.util
 import json
+import os
 import sys
+import urllib.request
 
 MIMOLY = "mimoly.py"
 
@@ -76,49 +78,59 @@ def main():
 
     # --- Integration: /v1/chat/completions with tools must not 502 ---
     print("[integration] POST /v1/chat/completions with tools")
-    try:
-        import urllib.request
+    if os.environ.get("SKIP_INTEGRATION") or "--no-integration" in sys.argv:
+        print("  SKIP  integration skipped via SKIP_INTEGRATION flag")
+    else:
+        import socket
+        server_online = False
+        try:
+            sock = socket.create_connection(("127.0.0.1", 8080), timeout=0.3)
+            sock.close()
+            server_online = True
+        except Exception:
+            server_online = False
 
-        payload = {
-            "model": "mimo-v2.6-pro",
-            "reasoning_effort": "none",
-            "messages": [
-                {"role": "system", "content": "You are a helpful agent. Use tools when needed."},
-                {"role": "user", "content": "Berapa cuaca di Jakarta? Pakai tool get_weather."},
-            ],
-            "tools": [{
-                "type": "function",
-                "function": {
-                    "name": "get_weather",
-                    "description": "Get current weather for a city",
-                    "parameters": {"type": "object",
-                                   "properties": {"city": {"type": "string"}},
-                                   "required": ["city"]},
-                },
-            }],
-            "stream": False,
-            "max_completion_tokens": 512,
-        }
-        req = urllib.request.Request(
-            "http://127.0.0.1:8080/v1/chat/completions",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            body = json.loads(resp.read().decode())
-        check("HTTP 200 (no 502)", True)
-        msg = body.get("choices", [{}])[0].get("message", {})
-        has_calls = bool(msg.get("tool_calls"))
-        has_text = bool((msg.get("content") or "").strip())
-        check("response has tool_calls or content", has_calls or has_text,
-              f"tool_calls={msg.get('tool_calls')!r} content={msg.get('content')!r}")
-        print(f"        finish_reason={body['choices'][0].get('finish_reason')} "
-              f"tool_calls={json.dumps(msg.get('tool_calls'), ensure_ascii=False)[:200]}")
-    except Exception as e:  # noqa: BLE001
-        if "ConnectionRefused" in repr(e) or "10061" in repr(e):
+        if not server_online:
             print("  SKIP  server not running (expected in CI/verify)")
         else:
-            check("integration request succeeded", False, f"raised {e!r}")
+            try:
+                payload = {
+                    "model": "mimo-v2.6-pro",
+                    "reasoning_effort": "none",
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful agent. Use tools when needed."},
+                        {"role": "user", "content": "Berapa cuaca di Jakarta? Pakai tool get_weather."},
+                    ],
+                    "tools": [{
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "description": "Get current weather for a city",
+                            "parameters": {"type": "object",
+                                           "properties": {"city": {"type": "string"}},
+                                           "required": ["city"]},
+                        },
+                    }],
+                    "stream": False,
+                    "max_completion_tokens": 512,
+                }
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8080/v1/chat/completions",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    body = json.loads(resp.read().decode())
+                check("HTTP 200 (no 502)", True)
+                msg = body.get("choices", [{}])[0].get("message", {})
+                has_calls = bool(msg.get("tool_calls"))
+                has_text = bool((msg.get("content") or "").strip())
+                check("response has tool_calls or content", has_calls or has_text,
+                      f"tool_calls={msg.get('tool_calls')!r} content={msg.get('content')!r}")
+                print(f"        finish_reason={body['choices'][0].get('finish_reason')} "
+                      f"tool_calls={json.dumps(msg.get('tool_calls'), ensure_ascii=False)[:200]}")
+            except Exception as e:  # noqa: BLE001
+                check("integration request succeeded", False, f"raised {e!r}")
 
     # --- Unit: tool observations with JSON must not leak unescaped `{"` ---
     print("[unit] tool observation quote sanitisation")
@@ -577,7 +589,6 @@ def main():
     # [unit] dynamic and portable path normalization
     # ------------------------------------------------------------------
     print("[unit] dynamic & portable tool path normalization")
-    import os
     # 1) When MIMOLY_WORKSPACE is unset: relative path is preserved as-is (clean slashes)
     os.environ.pop("MIMOLY_WORKSPACE", None)
     res_raw = m.normalize_tool_args("write_file", {"path": "src\\utils\\helper.ts"})
