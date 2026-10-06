@@ -20,7 +20,7 @@ import urllib.parse
 import uuid
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from fastapi import FastAPI, Request
@@ -147,6 +147,16 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8080
 CHAT_API_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/chat"
 CHAT_CONV_SAVE_URL = "https://aistudio.xiaomimimo.com/open-apis/chat/conversation/save"
+
+
+def get_upstream_endpoints(model: str, ph: str) -> Tuple[str, str]:
+    """Resolve upstream chat and conversation save URLs based on model cluster."""
+    is_ultraspeed = (model == "mimo-v2.6-pro-ultraspeed-studio")
+    prefix = "https://aistudio.xiaomimimo.com/fastchat" if is_ultraspeed else "https://aistudio.xiaomimimo.com"
+    quoted_ph = urllib.parse.quote(ph)
+    chat_url = f"{prefix}/open-apis/bot/chat?xiaomichatbot_ph={quoted_ph}"
+    save_url = f"{prefix}/open-apis/chat/conversation/save?xiaomichatbot_ph={quoted_ph}"
+    return chat_url, save_url
 
 MODEL_CATALOG = [
     {
@@ -2285,7 +2295,7 @@ async def handle_chat_completion(body: dict, request: Request):
         user_prompt += amplifier
 
     ph_param = cookies.get("xiaomichatbot_ph", "")
-    upstream_url = f"{CHAT_API_URL}?xiaomichatbot_ph={urllib.parse.quote(ph_param)}"
+    upstream_url, save_url = get_upstream_endpoints(target_upstream_model, ph_param)
 
     headers = {
         "Content-Type": "application/json",
@@ -2296,7 +2306,6 @@ async def handle_chat_completion(body: dict, request: Request):
 
     # Ensure conversation is registered in Xiaomi database
     conv_id = uuid.uuid4().hex
-    save_url = f"{CHAT_CONV_SAVE_URL}?xiaomichatbot_ph={urllib.parse.quote(ph_param)}"
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=10.0) as save_client:
