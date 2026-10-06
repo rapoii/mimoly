@@ -73,6 +73,22 @@ def normalize_upstream_frame(parsed: Any) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
+UPSTREAM_BUSY_PHRASES = (
+    "服务器繁忙",
+    "系统繁忙",
+    "服务繁忙",
+    "请稍后再试",
+    "请稍后重试",
+)
+
+
+def is_upstream_busy(text: str) -> bool:
+    """Return True if text contains any upstream capacity/overload error phrases."""
+    if not text:
+        return False
+    return any(p in text for p in UPSTREAM_BUSY_PHRASES)
+
+
 # Xiaomi MiMo Studio performs its own web retrieval for any prompt that contains
 # a literal URL and hands the result to the model as pre-fetched context. The
 # model then reads "the page is already available" and answers from that payload
@@ -860,6 +876,17 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
                 for k in list(other_keys.keys()):
                     args.pop(k, None)
 
+    # Path unwrapping if provided as a single-element list
+    if "path" in args and isinstance(args["path"], list) and len(args["path"]) == 1:
+        args["path"] = str(args["path"][0])
+
+    if name == "search_files":
+        if "pattern" not in args:
+            if "query" in args:
+                args["pattern"] = args.pop("query")
+            else:
+                args["pattern"] = ""
+
     # Path normalization for file tools (generic & portable)
     if "path" in args and isinstance(args["path"], str):
         p = args["path"].replace("\\", "/").strip()
@@ -882,6 +909,17 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
         print(f"[mimoly] schema mismatch for '{name}': {_validation['issues']}")
 
     return args
+
+
+def _recover_empty_execute_code(calls: List[Dict[str, Any]], reply_text: str) -> None:
+    """Recover missing/empty 'code' argument in execute_code from surrounding markdown python blocks (A12)."""
+    for tc in calls:
+        if tc.get("name") == "execute_code":
+            args = tc.setdefault("arguments", {})
+            if not args.get("code"):
+                m_py = re.findall(r"```(?:python|py)\n([\s\S]*?)\n```", reply_text)
+                if m_py:
+                    args["code"] = m_py[-1].strip()
 
 
 def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[List[Dict[str, Any]]] = None):
@@ -928,6 +966,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                 fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
         if tc_list:
+            _recover_empty_execute_code(tc_list, reply_text)
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = re.sub(r"<(?:function|invoke)[\s\S]*?</(?:function|invoke)>", "", clean).strip()
             clean = clean.replace("</think>", "").strip()
@@ -939,6 +978,8 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
         tc_list = []
         for block in m_tc:
             clean_block = block.replace("</think>", "").strip()
+            clean_block = re.sub(r"^```(?:json)?\s*", "", clean_block)
+            clean_block = re.sub(r"\s*```$", "", clean_block).strip()
             # Try safe_json_loads first (json-repair is more tolerant)
             tc_obj = safe_json_loads(clean_block, default=None)
             if isinstance(tc_obj, list):
@@ -972,6 +1013,7 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                         name = "terminal"
                     tc_list.append({"name": name, "arguments": args})
         if tc_list:
+            _recover_empty_execute_code(tc_list, reply_text)
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = clean.replace("</think>", "").strip()
             return tc_list, clean
@@ -1840,6 +1882,11 @@ async def chat_completions(request: Request):
                                             print(f"[mimoly] Upstream stream HTTP {resp.status_code}, retrying attempt {attempt+1}/3...")
                                             await asyncio.sleep(1.5 * (attempt + 1))
                                             continue
+                                        if resp.status_code in (401, 403):
+                                            print(f"[mimoly] Upstream auth failed HTTP {resp.status_code}. Session cookies in session.json may be expired!")
+                                            err_detail = "Unauthorized/Forbidden - please refresh cookies in session.json"
+                                        else:
+                                            err_detail = err_text.decode('utf-8', errors='ignore')
                                         err_chunk = {
                                             "id": completion_id,
                                             "object": "chat.completion.chunk",
@@ -1847,7 +1894,7 @@ async def chat_completions(request: Request):
                                             "model": model,
                                             "choices": [{
                                                 "index": 0,
-                                                "delta": {"content": f"\n[Error from upstream: HTTP {resp.status_code}: {err_text.decode('utf-8', errors='ignore')}]"},
+                                                "delta": {"content": f"\n[Error from upstream: HTTP {resp.status_code} ({err_detail})]"},
                                                 "finish_reason": "error"
                                             }]
                                         }
@@ -2001,8 +2048,8 @@ async def chat_completions(request: Request):
                                                 }
                                                 yield f"data: {json.dumps(chunk)}\n\n"
                                                 accumulated_chunks.append(clean_piece)
-                            if tools and "服务器繁忙" in "".join(accumulated_chunks) and attempt < 2:
-                                print(f"[mimoly] Upstream stream busy ('服务器繁忙'), retrying attempt {attempt+1}/3...")
+                            if tools and is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
+                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/3...")
                                 accumulated_chunks.clear()
                                 await asyncio.sleep(2.0)
                                 continue
@@ -2201,6 +2248,11 @@ async def chat_completions(request: Request):
                                 print(f"[mimoly] Upstream HTTP {resp.status_code}, retrying attempt {attempt+1}/3...")
                                 await asyncio.sleep(1.5 * (attempt + 1))
                                 continue
+                            if resp.status_code in (401, 403):
+                                print(f"[mimoly] Upstream auth failed HTTP {resp.status_code}. Session cookies in session.json may be expired!")
+                                err_detail = "Unauthorized/Forbidden - please refresh cookies in session.json"
+                            else:
+                                err_detail = err_body.decode('utf-8', errors='ignore')
                             _STATS["errors"] += 1
                             _record_timeline(errors=1)
                             _record_finish_reason("error")
@@ -2208,7 +2260,7 @@ async def chat_completions(request: Request):
                                             finish_reason="error",
                                             latency_ms=(time.time() - _req_start) * 1000.0)
                             return JSONResponse(
-                                {"error": f"Upstream HTTP {resp.status_code}: {err_body.decode('utf-8', errors='ignore')}"},
+                                {"error": f"Upstream HTTP {resp.status_code} ({err_detail})"},
                                 status_code=resp.status_code
                             )
 
@@ -2250,8 +2302,8 @@ async def chat_completions(request: Request):
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
 
-                if "服务器繁忙" in "".join(accumulated_chunks) and attempt < 2:
-                    print(f"[mimoly] Upstream server busy ('服务器繁忙'), retrying attempt {attempt+1}/3...")
+                if is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
+                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/3...")
                     accumulated_chunks.clear()
                     await asyncio.sleep(2.0)
                     continue

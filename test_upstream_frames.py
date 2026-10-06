@@ -660,6 +660,35 @@ def main():
     calls_recovered, clean_recovered = m.smart_extract_tool_calls(unclosed_reply, "", mock_tools)
     check("unclosed tool_call xml recovered", len(calls_recovered) == 1 and calls_recovered[0]["name"] == "execute_code", f"got {calls_recovered}")
 
+    # ------------------------------------------------------------------
+    # [unit] enhanced error recovery & upstream reliability
+    # ------------------------------------------------------------------
+    print("[unit] enhanced error recovery & upstream reliability")
+
+    # Test 7: Strip markdown code fence inside <tool_call>
+    md_tc_reply = "<tool_call>\n```json\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"main.py\"}}\n```\n</tool_call>"
+    calls_md, _ = m.smart_extract_tool_calls(md_tc_reply, "", mock_tools)
+    check("markdown json inside tool_call stripped and parsed", len(calls_md) == 1 and calls_md[0]["name"] == "read_file" and calls_md[0]["arguments"].get("path") == "main.py", f"got {calls_md}")
+
+    # Test 8: execute_code empty args recovers code from python block (A12)
+    empty_exec_reply = "Here is the code:\n```python\nimport os\nprint(os.getcwd())\n```\n<tool_call>\n<function=execute_code>\n</function>\n</tool_call>"
+    calls_empty_exec, _ = m.smart_extract_tool_calls(empty_exec_reply, "", mock_tools)
+    check("execute_code empty args recovers python code block", len(calls_empty_exec) == 1 and "print(os.getcwd())" in calls_empty_exec[0]["arguments"].get("code", ""), f"got {calls_empty_exec}")
+
+    # Test 9: path as single-item list unwrapped to string
+    list_path = m.normalize_tool_args("read_file", {"path": ["src/index.ts"]}, "", mock_tools)
+    check("path single list unwrapped to string", list_path.get("path") == "src/index.ts", f"got {list_path}")
+
+    # Test 10: search_files missing pattern populated from file_glob or default
+    sf_args = m.normalize_tool_args("search_files", {"file_glob": "*.py"}, "", mock_tools)
+    check("search_files missing pattern defaults safely", "pattern" in sf_args and sf_args.get("pattern") == "", f"got {sf_args}")
+
+    # Test 11: is_upstream_busy detects all busy variations
+    check("is_upstream_busy helper exists", hasattr(m, "is_upstream_busy"))
+    if hasattr(m, "is_upstream_busy"):
+        for busy_str in ["服务器繁忙", "系统繁忙", "服务繁忙", "请稍后再试", "请稍后重试"]:
+            check(f"is_upstream_busy detects '{busy_str}'", m.is_upstream_busy(f"Error: {busy_str}!"), f"failed for {busy_str}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
