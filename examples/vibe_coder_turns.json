@@ -2,7 +2,7 @@
   {
     "label": "01_ide_ngawur",
     "prompt": "halo... aku lagi pengen bikin semacam aplikasi timer gitu buat kerja fokus-fokus, kayak pomodoro gitulah. kemarin liat punya temen bagus banget. aku ada screenshot tampilannya nih, kira-kira kayak gitu deh yang aku mau. tapi jujur aku bingung mau mulai dari mana, masih newbie. tolong bantu aku dong",
-    "image": "D:\\Software\\Hermes Workspace\\projects\\pomo-demo\\mockup.png"
+    "image": "./mockup.png"
   },
   {
     "label": "02_stack_ragu",

@@ -126,7 +126,7 @@ def sanitize_observation(output: str, max_chars: int = 2000) -> str:
     )
 
 BASE_DIR = Path(__file__).parent.resolve()
-SESSION_FILE = BASE_DIR / "session.json"
+SESSION_FILE = Path(os.environ.get("MIMOLY_SESSION_FILE", BASE_DIR / "session.json")).resolve()
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8080
 CHAT_API_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/chat"
@@ -808,25 +808,16 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
         if m_p:
             args["path"] = m_p.group(1)
 
-    # Path normalization for file tools
+    # Path normalization for file tools (generic & portable)
     if "path" in args and isinstance(args["path"], str):
         p = args["path"].replace("\\", "/").strip()
-        if p.startswith("D:/Software/Hermes Workspace/"):
-            p = p[len("D:/Software/Hermes Workspace/"):]
-        if "spectra" in user_prompt.lower():
-            if p in ["page.tsx", "layout.tsx", "globals.css"]:
-                p = f"projects/websites/spectra/src/app/{p}"
-            elif p.startswith("src/app/") or p.startswith("src/"):
-                p = f"projects/websites/spectra/{p}"
-        else:
-            m_target = re.search(r"(projects/[a-zA-Z0-9_\-]+(?:/[a-zA-Z0-9_\-]+)?)", user_prompt)
-            if m_target:
-                target_base = m_target.group(1).rstrip("/")
-                if not p.startswith("projects/") and not p.startswith("/") and not (len(p) > 2 and p[1] == ":"):
-                    p = f"{target_base}/{p}"
-        # Ensure path under projects/ is absolute to prevent terminal CWD double-prefixing
-        if p.startswith("projects/"):
-            p = f"D:/Software/Hermes Workspace/{p}"
+        workspace_root = os.environ.get("MIMOLY_WORKSPACE", "").replace("\\", "/").rstrip("/")
+        if workspace_root:
+            if p.startswith(workspace_root + "/"):
+                pass  # already anchored to workspace
+            elif not os.path.isabs(p) and not (len(p) > 2 and p[1] == ":"):
+                # Anchor relative path to configured workspace
+                p = f"{workspace_root}/{p}"
         args["path"] = p
 
     # Repair JSON-type drift (stringified arrays/objects) against the tool schema.
@@ -2279,6 +2270,11 @@ async def chat_completions(request: Request):
 
 def cmd_serve(args):
     """Run the pure Web2API proxy server."""
+    global SESSION_FILE
+    if getattr(args, "session_file", None):
+        SESSION_FILE = Path(args.session_file).resolve()
+    if getattr(args, "workspace", None):
+        os.environ["MIMOLY_WORKSPACE"] = args.workspace
     print(f"[mimoly] Starting 100% Pure HTTP OpenAI-compatible proxy...")
     print(f"[mimoly] Zero Chrome processes, zero CDP overhead.")
     print(f"[mimoly] Endpoints:")
@@ -2301,6 +2297,9 @@ def cmd_serve(args):
 
 def cmd_test(args):
     """Perform a direct CLI test against Xiaomi MiMo via pure HTTP."""
+    global SESSION_FILE
+    if getattr(args, "session_file", None):
+        SESSION_FILE = Path(args.session_file).resolve()
     print(f"[mimoly] Testing pure HTTP connection to Xiaomi MiMo...")
     cookies = get_session_cookies()
     ph = cookies.get("xiaomichatbot_ph", "")
@@ -2357,19 +2356,32 @@ def cmd_test(args):
 
 def cmd_login(args):
     """One-time interactive login: opens browser, extracts cookies without quotes, writes session.json."""
+    global SESSION_FILE
+    if getattr(args, "session_file", None):
+        SESSION_FILE = Path(args.session_file).resolve()
     import websockets
 
     def find_system_browser() -> str:
         candidates = [
+            # Windows Chrome
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            # Windows Edge
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files (x86)\Microsoft\EdgeCore\152.0.4191.53\msedge.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+            # macOS Chrome & Edge
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            # Linux & PATH
             "google-chrome",
             "google-chrome-stable",
             "chromium",
+            "chromium-browser",
             "msedge",
+            "microsoft-edge",
         ]
         for c in candidates:
             if os.path.isabs(c):
@@ -2479,13 +2491,17 @@ def main():
     serve_parser = subparsers.add_parser("serve", help="Run the proxy server")
     serve_parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind (default: 0.0.0.0)")
     serve_parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to bind (default: 8080)")
+    serve_parser.add_argument("--session-file", default=None, help="Custom path to session.json")
+    serve_parser.add_argument("--workspace", default=None, help="Optional workspace root directory to anchor relative file paths")
 
     # test command
     test_parser = subparsers.add_parser("test", help="Test pure HTTP connection to MiMo")
     test_parser.add_argument("--prompt", default="Halo, siapa kamu?", help="Prompt to test")
+    test_parser.add_argument("--session-file", default=None, help="Custom path to session.json")
 
     # login command
     login_parser = subparsers.add_parser("login", help="Interactive one-time browser login")
+    login_parser.add_argument("--session-file", default=None, help="Custom destination path for session.json")
 
     args = parser.parse_args()
 

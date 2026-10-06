@@ -573,6 +573,34 @@ def main():
     check("_clip bounds huge output", len(m._clip("y" * 100000, 600)) <= 605,
           f"got {len(m._clip('y'*100000, 600))}")
 
+    # ------------------------------------------------------------------
+    # [unit] dynamic and portable path normalization
+    # ------------------------------------------------------------------
+    print("[unit] dynamic & portable tool path normalization")
+    import os
+    # 1) When MIMOLY_WORKSPACE is unset: relative path is preserved as-is (clean slashes)
+    os.environ.pop("MIMOLY_WORKSPACE", None)
+    res_raw = m.normalize_tool_args("write_file", {"path": "src\\utils\\helper.ts"})
+    check("relative path preserved without workspace injection", res_raw.get("path") == "src/utils/helper.ts",
+          f"got {res_raw.get('path')}")
+
+    # 2) When MIMOLY_WORKSPACE is set: relative path anchored to workspace
+    os.environ["MIMOLY_WORKSPACE"] = "/custom/project/root"
+    res_anchored = m.normalize_tool_args("write_file", {"path": "src\\index.ts"})
+    check("relative path anchored to custom workspace", res_anchored.get("path") == "/custom/project/root/src/index.ts",
+          f"got {res_anchored.get('path')}")
+
+    # 3) Absolute paths never double-prefixed
+    res_abs = m.normalize_tool_args("read_file", {"path": "/custom/project/root/config.json"})
+    check("absolute workspace path not double-prefixed", res_abs.get("path") == "/custom/project/root/config.json",
+          f"got {res_abs.get('path')}")
+    os.environ.pop("MIMOLY_WORKSPACE", None)
+
+    # 4) Zero hardcoded machine/user paths in mimoly.py
+    for forbidden in ["Hermes Workspace", "D:/Software", "D:\\Software", "spectra"]:
+        check(f"zero hardcoded '{forbidden}' in source", forbidden not in _src,
+              f"found '{forbidden}' in {MIMOLY}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

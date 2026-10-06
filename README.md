@@ -77,6 +77,10 @@ python mimoly.py serve --port 8080
 uv run python mimoly.py serve --port 8080
 ```
 
+#### Optional Flags & Environment Variables
+- `--session-file <path>` (or `MIMOLY_SESSION_FILE`): Custom path to your `session.json`.
+- `--workspace <path>` (or `MIMOLY_WORKSPACE`): Optional workspace root directory to anchor relative file paths for agent tools. By default, relative paths are preserved as-is.
+
 Verify the server is running:
 ```bash
 curl http://127.0.0.1:8080/health
