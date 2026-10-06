@@ -689,6 +689,129 @@ def main():
         for busy_str in ["服务器繁忙", "系统繁忙", "服务繁忙", "请稍后再试", "请稍后重试"]:
             check(f"is_upstream_busy detects '{busy_str}'", m.is_upstream_busy(f"Error: {busy_str}!"), f"failed for {busy_str}")
 
+    # ------------------------------------------------------------------
+    # [unit] smart context & memory retention
+    # ------------------------------------------------------------------
+    print("[unit] smart context & memory retention")
+
+    # Test 12: System prompt up to 6000 chars is preserved in build_agent_prompt
+    long_sys_prompt = "You are Hermes Senior Assistant.\n" + ("Specialized instructions line.\n" * 150)
+    msg_with_sys = [
+        {"role": "system", "content": long_sys_prompt},
+        {"role": "user", "content": "Halo apa kabar?"}
+    ]
+    prompt_out = m.build_agent_prompt(msg_with_sys, tools=mock_tools)
+    check("rich system prompt preserved (not dropped when >1500 chars)", "Specialized instructions line." in prompt_out, f"len prompt={len(prompt_out)}")
+
+    # Test 13: Assistant action in history records tool arguments
+    msg_with_action = [
+        {"role": "user", "content": "Baca file config"},
+        {"role": "assistant", "tool_calls": [{"id": "call_1", "function": {"name": "read_file", "arguments": "{\"path\": \"config.json\"}"}}]},
+        {"role": "tool", "name": "read_file", "content": "{\"port\": 8080}"}
+    ]
+    prompt_action = m.build_agent_prompt(msg_with_action, tools=mock_tools)
+    check("assistant action preserves tool arguments", "read_file(path='config.json')" in prompt_action or "read_file(path=\"config.json\")" in prompt_action, f"got {prompt_action}")
+
+    # Test 14: sanitize_observation allows custom larger limit for code/files
+    big_code_output = "line_of_code\n" * 300  # ~3900 chars
+    sanitized_default = m.sanitize_observation(big_code_output, max_chars=8000)
+    check("sanitize_observation retains code up to 8000 chars", len(sanitized_default) == len(big_code_output), f"length={len(sanitized_default)}")
+
+    # Test 15: History retention keeps up to 16 turns
+    many_turns = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i}"} for i in range(20)]
+    prompt_turns = m.build_agent_prompt(many_turns, tools=mock_tools)
+    check("history retains 16 recent turns", "turn 14" in prompt_turns and "turn 5" in prompt_turns, f"got {prompt_turns}")
+
+    # ------------------------------------------------------------------
+    # [unit] model matrix & dynamic discovery
+    # ------------------------------------------------------------------
+    print("[unit] model matrix & dynamic discovery")
+
+    # Test 16: Ultraspeed model alias exists
+    check("MODEL_ALIASES maps ultraspeed", "mimo-v2.6-pro-ultraspeed" in m.MODEL_ALIASES and m.MODEL_ALIASES["mimo-v2.6-pro-ultraspeed"] == "mimo-v2.6-pro-ultraspeed-studio")
+    check("MODEL_CATALOG contains ultraspeed", any(cat["id"] in ("mimo-v2.6-pro-ultraspeed", "mimo-v2.6-pro-ultraspeed-studio") for cat in m.MODEL_CATALOG))
+
+    # Test 17: sync_upstream_models helper exists and handles config payload
+    check("sync_upstream_models helper exists", hasattr(m, "sync_upstream_models"))
+    if hasattr(m, "sync_upstream_models"):
+        mock_config = {
+            "modelConfigList": [
+                {"model": "mimo-v3-future", "name": "MiMo-V3-Future", "enIntro": "Next gen model"}
+            ]
+        }
+        added = m.sync_upstream_models(mock_config)
+        check("sync_upstream_models registers new model into catalog", any(cat["id"] == "mimo-v3-future" for cat in m.MODEL_CATALOG))
+        check("sync_upstream_models registers new model into aliases", "mimo-v3-future" in m.MODEL_ALIASES)
+
+    # ------------------------------------------------------------------
+    # [unit] vision & multimodal upload pipeline
+    # ------------------------------------------------------------------
+    print("[unit] vision & multimodal upload pipeline")
+
+    check("extract_images_from_messages helper exists", hasattr(m, "extract_images_from_messages"))
+    if hasattr(m, "extract_images_from_messages"):
+        sample_multimodal = [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Apa ini?"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}}
+            ]}
+        ]
+        imgs = m.extract_images_from_messages(sample_multimodal)
+        check("extracted base64 image", len(imgs) == 1 and imgs[0]["mime_type"] == "image/png", f"got {imgs}")
+
+    check("upload_media_to_mimo helper exists", hasattr(m, "upload_media_to_mimo"))
+    check("prepare_multimedias_for_request helper exists", hasattr(m, "prepare_multimedias_for_request"))
+
+    # ------------------------------------------------------------------
+    # [unit] anthropic messages API compatibility (/v1/messages)
+    # ------------------------------------------------------------------
+    print("[unit] anthropic messages API compatibility")
+
+    check("convert_anthropic_request helper exists", hasattr(m, "convert_anthropic_request"))
+    check("convert_openai_to_anthropic_response helper exists", hasattr(m, "convert_openai_to_anthropic_response"))
+
+    if hasattr(m, "convert_anthropic_request"):
+        ant_req = {
+            "model": "claude-3-5-sonnet",
+            "system": "You are a coding assistant.",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "Cari file"}]}
+            ],
+            "tools": [
+                {
+                    "name": "search_files",
+                    "description": "Find files",
+                    "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}}
+                }
+            ]
+        }
+        converted_req = m.convert_anthropic_request(ant_req)
+        check("anthropic model mapped", converted_req.get("model") in ("claude-3-5-sonnet", "mimo-v2.6-pro"), f"got {converted_req}")
+        check("system message injected", converted_req["messages"][0]["role"] == "system" and "coding assistant" in converted_req["messages"][0]["content"])
+        check("anthropic tool converted to openai function", converted_req.get("tools") and converted_req["tools"][0]["function"]["name"] == "search_files")
+
+    if hasattr(m, "convert_openai_to_anthropic_response"):
+        openai_mock_resp = {
+            "id": "chatcmpl-123",
+            "model": "mimo-v2.6-pro",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "File ditemukan.",
+                    "reasoning_content": "User meminta mencari file.",
+                    "tool_calls": [{
+                        "id": "call_abc",
+                        "function": {"name": "search_files", "arguments": "{\"pattern\": \"*.py\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }
+        ant_resp = m.convert_openai_to_anthropic_response(openai_mock_resp, "claude-3-5-sonnet")
+        check("anthropic response structure", ant_resp.get("type") == "message" and ant_resp.get("stop_reason") == "tool_use", f"got {ant_resp}")
+        types = [b.get("type") for b in ant_resp.get("content", [])]
+        check("anthropic has thinking and tool_use blocks", "thinking" in types and "tool_use" in types, f"got types {types}")
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

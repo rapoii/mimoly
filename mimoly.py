@@ -161,6 +161,12 @@ MODEL_CATALOG = [
         "upstream_model": "mimo-v2.6-flash",
         "description": "Xiaomi high-speed, responsive model with full reasoning capabilities."
     },
+    {
+        "id": "mimo-v2.6-pro-ultraspeed-studio",
+        "name": "MiMo-V2.6-Pro-UltraSpeed (Fast Multimodal Reasoning)",
+        "upstream_model": "mimo-v2.6-pro-ultraspeed-studio",
+        "description": "Xiaomi fast-response multimodal model with deep thinking capabilities."
+    },
 ]
 
 MODEL_ALIASES = {
@@ -171,6 +177,10 @@ MODEL_ALIASES = {
     "mimo-v2.1-pro": "mimo-v2.6-pro",
     "mimo-pro": "mimo-v2.6-pro",
     "mimo": "mimo-v2.6-pro",
+    # UltraSpeed
+    "mimo-v2.6-pro-ultraspeed": "mimo-v2.6-pro-ultraspeed-studio",
+    "mimo-v2.6-pro-ultraspeed-studio": "mimo-v2.6-pro-ultraspeed-studio",
+    "mimo-ultraspeed": "mimo-v2.6-pro-ultraspeed-studio",
     # Flash / Fast
     "mimo-v2.6-flash": "mimo-v2.6-flash",
     "mimo-v2.5": "mimo-v2.6-flash",
@@ -178,6 +188,44 @@ MODEL_ALIASES = {
     "mimo-v2.1-omni": "mimo-v2.6-flash",
     "mimo-flash": "mimo-v2.6-flash",
 }
+
+
+def sync_upstream_models(config_data: dict) -> int:
+    """Dynamically register models from Xiaomi bot/config into catalog and aliases."""
+    added = 0
+    model_list = config_data.get("modelConfigList") or config_data.get("data", {}).get("modelConfigList", [])
+    if not isinstance(model_list, list):
+        return 0
+
+    existing_ids = {m["id"] for m in MODEL_CATALOG}
+    for item in model_list:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("model")
+        if not model_id:
+            continue
+        name = item.get("name") or model_id
+        desc = item.get("enIntro") or item.get("cnIntro") or f"Xiaomi {name} model"
+        
+        if model_id not in existing_ids:
+            MODEL_CATALOG.append({
+                "id": model_id,
+                "name": name,
+                "upstream_model": model_id,
+                "description": desc
+            })
+            existing_ids.add(model_id)
+            added += 1
+
+        if model_id not in MODEL_ALIASES:
+            MODEL_ALIASES[model_id] = model_id
+            
+        # Clean suffix alias
+        clean_alias = model_id.replace("-studio", "")
+        if clean_alias not in MODEL_ALIASES:
+            MODEL_ALIASES[clean_alias] = model_id
+
+    return added
 
 app = FastAPI(title="Mimoly Web2API Proxy", description="100% Pure HTTP OpenAI-Compatible Proxy for Xiaomi MiMo")
 
@@ -497,6 +545,383 @@ AGENT_PROFILES = {
 }
 
 
+def extract_images_from_messages(messages: list) -> List[Dict[str, Any]]:
+    """Extract image data (base64 or URL) from OpenAI-format messages."""
+    images = []
+    seen = set()
+    for m in messages:
+        content = m.get("content", "")
+        if isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "image_url":
+                    img_info = part.get("image_url", {})
+                    url = img_info.get("url", "") if isinstance(img_info, dict) else str(img_info)
+                    if not url:
+                        continue
+                    if url.startswith("data:"):
+                        try:
+                            header, b64_str = url.split(",", 1)
+                            mime = header.split(";")[0].split(":")[1] if ":" in header else "image/jpeg"
+                            if b64_str and b64_str not in seen:
+                                seen.add(b64_str)
+                                images.append({
+                                    "type": "base64",
+                                    "base64": b64_str,
+                                    "mime_type": mime,
+                                    "url": url
+                                })
+                        except Exception:
+                            pass
+                    elif url.startswith("http://") or url.startswith("https://"):
+                        if url not in seen:
+                            seen.add(url)
+                            images.append({
+                                "type": "url",
+                                "url": url,
+                                "mime_type": "image/jpeg"
+                            })
+    return images
+
+
+async def upload_media_to_mimo(
+    base64_data: str,
+    mime_type: str,
+    cookies: dict,
+    ph: str,
+    model: str = "mimo-v2.6-pro"
+) -> Optional[Dict[str, Any]]:
+    """Upload image/media to Xiaomi MiMo OSS storage via 3-step flow."""
+    if "," in base64_data:
+        base64_data = base64_data.split(",", 1)[1]
+
+    import base64 as b64
+    try:
+        binary_data = b64.b64decode(base64_data)
+    except Exception as e:
+        print(f"[mimoly] base64 decode failed: {e}")
+        return None
+
+    ext = mime_type.split("/")[-1] if "/" in mime_type else "jpg"
+    if ext == "jpeg":
+        ext = "jpg"
+    file_name = f"{uuid.uuid4().hex[:16]}.{ext}"
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://aistudio.xiaomimimo.com/",
+        "Origin": "https://aistudio.xiaomimimo.com"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            info_res = await client.post(
+                "https://aistudio.xiaomimimo.com/open-apis/resource/genUploadInfo",
+                params={"xiaomichatbot_ph": ph},
+                json={"fileName": file_name},
+                headers=headers,
+                cookies=cookies
+            )
+            info_data = info_res.json()
+            if info_data.get("code") != 0 or not info_data.get("data"):
+                print(f"[mimoly] genUploadInfo failed: {info_data}")
+                return None
+
+            upload_url = info_data["data"]["uploadUrl"]
+            resource_url = info_data["data"]["resourceUrl"]
+            object_name = info_data["data"]["objectName"]
+
+            put_headers = {"Content-Type": "application/octet-stream"}
+            put_res = await client.put(upload_url, content=binary_data, headers=put_headers)
+            if put_res.status_code != 200:
+                print(f"[mimoly] PUT to OSS failed: {put_res.status_code}")
+                return None
+
+            parse_params = {
+                "fileUrl": resource_url,
+                "objectName": object_name,
+                "model": model,
+                "xiaomichatbot_ph": ph,
+            }
+
+            parse_res = None
+            for attempt in range(5):
+                try:
+                    resp = await client.post(
+                        "https://aistudio.xiaomimimo.com/open-apis/resource/parse",
+                        params=parse_params,
+                        json={},
+                        headers=headers,
+                        cookies=cookies
+                    )
+                    data = resp.json()
+                    if data.get("code") == 0 and data.get("data", {}).get("id"):
+                        parse_res = data
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(1.0)
+
+            if not parse_res:
+                print("[mimoly] Resource parse failed after retries")
+                return None
+
+            resource_id = parse_res["data"]["id"]
+            return {
+                "mediaType": "image",
+                "fileUrl": resource_url,
+                "compressedVideoUrl": "",
+                "audioTrackUrl": "",
+                "name": file_name,
+                "size": len(binary_data),
+                "status": "completed",
+                "objectName": object_name,
+                "tokenUsage": parse_res["data"].get("tokenUsage", 106),
+                "url": resource_id
+            }
+    except Exception as e:
+        print(f"[mimoly] upload_media_to_mimo exception: {e}")
+        return None
+
+
+async def prepare_multimedias_for_request(
+    messages: list,
+    cookies: dict,
+    ph: str,
+    model: str = "mimo-v2.6-pro"
+) -> List[Dict[str, Any]]:
+    """Detect images in messages and upload to Xiaomi OSS for multiMedias field."""
+    images = extract_images_from_messages(messages)
+    if not images or not ph:
+        return []
+
+    multi_medias = []
+    for img in images:
+        b64_str = img.get("base64")
+        mime = img.get("mime_type", "image/jpeg")
+        if not b64_str and img.get("type") == "url":
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as dl_client:
+                    r = await dl_client.get(img["url"])
+                    if r.status_code == 200:
+                        import base64 as b64
+                        b64_str = b64.b64encode(r.content).decode("utf-8")
+                        mime = r.headers.get("content-type", mime)
+            except Exception as e:
+                print(f"[mimoly] Failed to fetch remote image {img['url']}: {e}")
+                continue
+
+        if b64_str:
+            media_obj = await upload_media_to_mimo(b64_str, mime, cookies, ph, model=model)
+            if media_obj:
+                multi_medias.append(media_obj)
+
+    return multi_medias
+
+
+def convert_anthropic_messages(messages: list, system: Optional[str] = None) -> list:
+    """Convert Anthropic Messages API messages into OpenAI Chat Completions format."""
+    result = []
+    if system:
+        result.append({"role": "system", "content": system})
+
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        if role == "assistant" and isinstance(content, list):
+            text_parts = []
+            tool_calls = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                b_type = block.get("type")
+                if b_type == "text":
+                    text_parts.append(block.get("text", ""))
+                elif b_type == "tool_use":
+                    tool_calls.append({
+                        "id": block.get("id", f"tu_{uuid.uuid4().hex[:24]}"),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input", {}), ensure_ascii=False) if isinstance(block.get("input"), dict) else str(block.get("input", ""))
+                        }
+                    })
+                elif b_type == "thinking":
+                    text_parts.append(block.get("thinking", ""))
+            combined = "\n".join(t for t in text_parts if t)
+            obj = {"role": "assistant", "content": combined or None}
+            if tool_calls:
+                obj["tool_calls"] = tool_calls
+            result.append(obj)
+
+        elif role == "user" and isinstance(content, list):
+            new_blocks = []
+            text_parts = []
+            tool_results = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                b_type = block.get("type")
+                if b_type == "text":
+                    text_parts.append(block.get("text", ""))
+                elif b_type == "image":
+                    src = block.get("source", {})
+                    img_type = src.get("media_type", "image/png")
+                    img_data = src.get("data", "")
+                    if src.get("type") == "base64":
+                        new_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{img_type};base64,{img_data}"}
+                        })
+                    elif src.get("type") == "url":
+                        new_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": src.get("url", "")}
+                        })
+                elif b_type == "tool_result":
+                    tool_results.append(block)
+
+            if tool_results:
+                for tr in tool_results:
+                    tr_content = tr.get("content", "")
+                    if isinstance(tr_content, list):
+                        tr_text = " ".join(
+                            b.get("text", "") for b in tr_content
+                            if isinstance(b, dict) and b.get("type") == "text"
+                        )
+                    else:
+                        tr_text = str(tr_content) if tr_content else ""
+                    result.append({
+                        "role": "tool",
+                        "tool_call_id": tr.get("tool_use_id", ""),
+                        "content": tr_text,
+                    })
+
+            if not tool_results:
+                combined_text = "\n".join(t for t in text_parts if t)
+                if combined_text:
+                    new_blocks.insert(0, {"type": "text", "text": combined_text})
+                if new_blocks:
+                    result.append({"role": "user", "content": new_blocks})
+                else:
+                    result.append({"role": "user", "content": combined_text})
+        elif isinstance(content, str):
+            result.append({"role": role, "content": content})
+        else:
+            result.append({"role": role, "content": str(content) if content else ""})
+
+    return result
+
+
+def convert_anthropic_tools(tools: Optional[list]) -> Optional[list]:
+    """Convert Anthropic tools list to OpenAI function calling format."""
+    if not tools:
+        return None
+    result = []
+    for t in tools:
+        if isinstance(t, dict):
+            fn = {
+                "name": t.get("name", ""),
+                "description": t.get("description", ""),
+                "parameters": t.get("input_schema", {}),
+            }
+            result.append({"type": "function", "function": fn})
+    return result if result else None
+
+
+def convert_anthropic_request(body: dict) -> dict:
+    """Convert Anthropic /v1/messages request to OpenAI /v1/chat/completions format."""
+    model = body.get("model", "mimo-v2.6-pro")
+    stream = body.get("stream", False)
+    max_tokens = body.get("max_tokens")
+    system = body.get("system", None)
+    messages = body.get("messages", [])
+    tools = body.get("tools", None)
+    temperature = body.get("temperature", None)
+    top_p = body.get("top_p", None)
+    stop_sequences = body.get("stop_sequences", None)
+
+    openai_msgs = convert_anthropic_messages(messages, system)
+    openai_tools = convert_anthropic_tools(tools)
+
+    res = {
+        "model": model,
+        "messages": openai_msgs,
+        "stream": stream,
+    }
+    if max_tokens is not None:
+        res["max_tokens"] = max_tokens
+    if openai_tools:
+        res["tools"] = openai_tools
+    if temperature is not None:
+        res["temperature"] = temperature
+    if top_p is not None:
+        res["top_p"] = top_p
+    if stop_sequences:
+        res["stop"] = stop_sequences
+    return res
+
+
+def convert_openai_to_anthropic_response(openai_body: dict, model: str, msg_id: Optional[str] = None) -> dict:
+    """Convert OpenAI chat completion response to Anthropic /v1/messages response format."""
+    msg_id = msg_id or f"msg_{uuid.uuid4().hex[:24]}"
+    choices = openai_body.get("choices", [{}])
+    choice = choices[0] if choices else {}
+    message = choice.get("message", {})
+
+    content = message.get("content", "") or ""
+    reasoning = message.get("reasoning_content", "") or ""
+    tool_calls = message.get("tool_calls", None)
+
+    content_blocks = []
+    if reasoning:
+        content_blocks.append({
+            "type": "thinking",
+            "thinking": reasoning,
+            "signature": ""
+        })
+
+    text = content.strip()
+    if tool_calls:
+        if text:
+            content_blocks.append({"type": "text", "text": text})
+        stop_reason = "tool_use"
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            try:
+                args = json.loads(fn.get("arguments", "{}"))
+            except Exception:
+                args = {}
+            content_blocks.append({
+                "type": "tool_use",
+                "id": tc.get("id", f"tu_{uuid.uuid4().hex[:24]}"),
+                "name": fn.get("name", ""),
+                "input": args
+            })
+    else:
+        stop_reason = "end_turn"
+        if text or not reasoning:
+            content_blocks.append({"type": "text", "text": text})
+
+    usage_data = openai_body.get("usage", {})
+    return {
+        "id": msg_id,
+        "type": "message",
+        "role": "assistant",
+        "content": content_blocks,
+        "model": model,
+        "stop_reason": stop_reason,
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": usage_data.get("prompt_tokens", 0),
+            "output_tokens": usage_data.get("completion_tokens", 0)
+        }
+    }
+
+
 def detect_agent_framework(request: Request, body: dict) -> str:
     """Detect which agent framework is calling, from header > body > env."""
     framework = request.headers.get("X-Agent-Framework", "").lower().strip()
@@ -530,10 +955,11 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                 formatted.append(f"Assistant: {clean_c}")
         return "\n\n".join(formatted)
 
+    system_instructions = []
     history = []
     user_goals = []
 
-    for m in messages:
+    for idx, m in enumerate(messages):
         role = m.get("role", "user")
         content = m.get("content", "")
         if isinstance(content, list):
@@ -541,8 +967,9 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             content = " ".join(text_parts)
 
         if role == "system":
-            if content and len(content) < 1500:
-                history.append(f"[System]: {content}")
+            if content:
+                clean_sys = sanitize_observation(content, max_chars=8000)
+                system_instructions.append(clean_sys)
         elif role == "user":
             # Bersihkan bootstrap tags agar prompt tetap ringkas & fokus
             clean_c = re.sub(r"<EXTREMELY_IMPORTANT>[\s\S]*?</EXTREMELY_IMPORTANT>", "", content).strip()
@@ -557,13 +984,34 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         elif role == "assistant":
             tool_calls = m.get("tool_calls", [])
             if tool_calls:
-                tc_names = [tc.get("function", {}).get("name", "") for tc in tool_calls]
-                history.append(f"[Assistant Action]: Menjalankan tool: {', '.join(tc_names)}")
+                actions = []
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    fn_name = fn.get("name", "tool")
+                    raw_args = fn.get("arguments", "")
+                    if isinstance(raw_args, str) and raw_args.strip():
+                        try:
+                            parsed_args = json.loads(raw_args)
+                            if isinstance(parsed_args, dict):
+                                arg_str = ", ".join(f"{k}={v!r}" for k, v in list(parsed_args.items())[:3])
+                                actions.append(f"{fn_name}({arg_str})")
+                            else:
+                                actions.append(f"{fn_name}()")
+                        except Exception:
+                            actions.append(f"{fn_name}()")
+                    elif isinstance(raw_args, dict):
+                        arg_str = ", ".join(f"{k}={v!r}" for k, v in list(raw_args.items())[:3])
+                        actions.append(f"{fn_name}({arg_str})")
+                    else:
+                        actions.append(f"{fn_name}()")
+                history.append(f"[Assistant Action]: Menjalankan tool: {', '.join(actions)}")
             elif content:
                 history.append(f"[Assistant]: {content}")
         elif role == "tool":
             tool_name = m.get("name", "tool")
-            sanitized = sanitize_observation(content, max_chars=2000)
+            # Beri kuota lebih besar (sampai 8000 chars) untuk tool terbaru agar file/kode tidak terpotong
+            obs_limit = 8000 if idx >= len(messages) - 2 else 2000
+            sanitized = sanitize_observation(content, max_chars=obs_limit)
             # Tool results routinely contain JSON, which is full of double quotes.
             # Embedding that verbatim into this plain-text prompt leaves an
             # unescaped `{"` sequence that the model cannot parse, so it retries
@@ -575,6 +1023,9 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     main_goal = user_goals[-1] if user_goals else ""
 
     prompt_lines = []
+    if system_instructions:
+        prompt_lines.append("Instruksi Sistem:\n" + "\n\n".join(system_instructions))
+
     if tools:
         tool_desc = []
         for t in tools:
@@ -590,8 +1041,8 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         prompt_lines.append(intro_text)
 
     if history:
-        # Keep recent history
-        recent_hist = history[-8:]
+        # Keep recent history (up to 16 turns for multi-turn agent coherence)
+        recent_hist = history[-16:]
         prompt_lines.append("Riwayat percakapan:\n" + "\n".join(recent_hist))
 
     if main_goal:
@@ -1704,6 +2155,42 @@ async def chat_completions(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+    return await handle_chat_completion(body, request)
+
+
+@app.post("/v1/messages")
+async def anthropic_messages(request: Request):
+    """Anthropic Messages API endpoint (/v1/messages) for Claude Code, Cline, etc."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"type": "error", "error": {"type": "invalid_request_error", "message": "Invalid JSON body"}}, status_code=400)
+
+    openai_body = convert_anthropic_request(body)
+    model = body.get("model", "mimo-v2.6-pro")
+    stream = body.get("stream", False)
+
+    resp = await handle_chat_completion(openai_body, request)
+    if not stream:
+        if isinstance(resp, dict):
+            if "error" in resp:
+                return JSONResponse({"type": "error", "error": {"type": "api_error", "message": str(resp["error"])}}, status_code=400)
+            ant_resp = convert_openai_to_anthropic_response(resp, model)
+            return JSONResponse(ant_resp)
+        elif isinstance(resp, JSONResponse):
+            try:
+                data = json.loads(resp.body.decode("utf-8"))
+                if "error" in data:
+                    return JSONResponse({"type": "error", "error": {"type": "api_error", "message": str(data["error"])}}, status_code=resp.status_code)
+                ant_resp = convert_openai_to_anthropic_response(data, model)
+                return JSONResponse(ant_resp)
+            except Exception:
+                return resp
+        return resp
+    return resp
+
+
+async def handle_chat_completion(body: dict, request: Request):
 
     messages = body.get("messages", [])
     if not messages:
@@ -1826,6 +2313,18 @@ async def chat_completions(request: Request):
             else:
                 await asyncio.sleep(1.0)
 
+    # Multimodal: Detect images and upload to Xiaomi OSS
+    multi_medias = []
+    if ph_param:
+        try:
+            multi_medias = await prepare_multimedias_for_request(
+                messages, cookies, ph_param, model=target_upstream_model
+            )
+            if multi_medias:
+                print(f"[mimoly] Prepared {len(multi_medias)} multimodal attachment(s) for upstream")
+        except Exception as e:
+            print(f"[mimoly] Warning: failed to prepare multimedias: {e}")
+
     # Xiaomi payload structure
     upstream_payload = {
         "msgId": uuid.uuid4().hex,
@@ -1837,7 +2336,7 @@ async def chat_completions(request: Request):
             "webSearchStatus": "disabled",
             "model": target_upstream_model,
         },
-        "multiMedias": []
+        "multiMedias": multi_medias
     }
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
