@@ -166,6 +166,8 @@ UPSTREAM_BUSY_PHRASES = (
     "Too many requests",
     "Please try again later",
     "Service is temporarily unavailable",
+    "query is too long",
+    "query too long",
 )
 
 
@@ -1619,9 +1621,14 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
 
     main_goal = user_goals[-1] if user_goals else ""
 
+    MAX_PROMPT_BUDGET = 26000
+
     prompt_lines = []
     if system_instructions:
-        prompt_lines.append("Instruksi Sistem:\n" + "\n\n".join(system_instructions))
+        sys_text = "\n\n".join(system_instructions)
+        if len(sys_text) > 5000:
+            sys_text = sys_text[:5000] + "\n...[instruksi sistem disingkat]"
+        prompt_lines.append("Instruksi Sistem:\n" + sys_text)
 
     if tools:
         tool_desc = []
@@ -1637,23 +1644,44 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         intro_text = profile["tool_intro"].replace("{tool_desc}", "\n".join(tool_desc))
         prompt_lines.append(intro_text)
 
-    if history:
-        # Keep recent history (up to 16 turns for multi-turn agent coherence)
-        recent_hist = history[-16:]
-        prompt_lines.append("Riwayat percakapan:\n" + "\n".join(recent_hist))
-
+    # Goal & status guidance
+    goal_block = ""
     if main_goal:
         if messages and messages[-1].get("role") == "tool":
-            prompt_lines.append(
+            goal_block = (
                 f"Tugas utama user: {main_goal}\n"
                 f"Status terkini: Hasil eksekusi tool terbaru ada di riwayat di atas.\n"
                 f"- Jika tugas utama sudah terjawab/selesai secara lengkap, berikan jawaban akhir yang jelas dan informatif kepada user sekarang.\n"
                 f"- Jika tugas masih membutuhkan langkah berikutnya atau tool lanjutan (misal melihat isi skill, memanggil MCP, membaca file, delegasi task), panggil tool berikutnya sekarang."
             )
         else:
-            prompt_lines.append(f"Tugas sekarang:\n{main_goal}")
+            goal_block = f"Tugas sekarang:\n{main_goal}"
 
-    return "\n\n".join(prompt_lines)
+    # Calculate remaining budget for history
+    fixed_len = sum(len(line) for line in prompt_lines) + len(goal_block) + 500
+    hist_budget = max(4000, MAX_PROMPT_BUDGET - fixed_len)
+
+    # Budget history turns: keep as many recent turns as fit in hist_budget
+    if history:
+        recent_hist = []
+        current_hist_len = 0
+        for item in reversed(history[-16:]):
+            item_len = len(item) + 1
+            if current_hist_len + item_len <= hist_budget or not recent_hist:
+                recent_hist.append(item)
+                current_hist_len += item_len
+            else:
+                break
+        recent_hist.reverse()
+        prompt_lines.append("Riwayat percakapan:\n" + "\n".join(recent_hist))
+
+    if goal_block:
+        prompt_lines.append(goal_block)
+
+    assembled = "\n\n".join(prompt_lines)
+    if len(assembled) > MAX_PROMPT_BUDGET:
+        assembled = assembled[:MAX_PROMPT_BUDGET]
+    return assembled
 
 
 def _coerce_to_list(val: Any) -> List[Any]:
