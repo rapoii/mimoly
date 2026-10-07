@@ -158,6 +158,14 @@ UPSTREAM_BUSY_PHRASES = (
     "服务繁忙",
     "请稍后再试",
     "请稍后重试",
+    "请求过于频繁",
+    "Please do not submit repeatedly",
+    "do not submit repeatedly",
+    "The server is busy",
+    "Server is busy",
+    "Too many requests",
+    "Please try again later",
+    "Service is temporarily unavailable",
 )
 
 
@@ -3441,11 +3449,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                 }
                                                 yield f"data: {json.dumps(chunk)}\n\n"
                                                 accumulated_chunks.append(clean_piece)
-                            if tools and is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
-                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/3...")
+                            if tools and is_upstream_busy("".join(accumulated_chunks)) and attempt < 3:
+                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/4...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
-                                await _budget.sleep(attempt)
+                                await asyncio.sleep(2.0 * (attempt + 1))
                                 continue
                             break
                         except Exception as conn_err:
@@ -3727,11 +3735,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
 
-                if is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
-                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/3...")
+                if is_upstream_busy("".join(accumulated_chunks)) and attempt < 3:
+                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/4...")
                     accumulated_chunks.clear()
                     _bump_retry()
-                    await _budget.sleep(attempt)
+                    await asyncio.sleep(2.0 * (attempt + 1))
                     continue
                 break
             except Exception as conn_err:
