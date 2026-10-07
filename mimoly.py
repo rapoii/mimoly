@@ -3271,8 +3271,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
                                             print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/4...")
                                             _bump_retry()
-                                            # Rotate to another credential when the failure is key-specific.
-                                            if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
+                                            # Rotate to another credential when the failure is key-specific AND multiple accounts exist.
+                                            if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
                                                 release_account(_cur_acct, success=False, error_class=_err_class)
                                                 try:
                                                     _cur_cookies, _cur_acct = acquire_account()
@@ -3711,7 +3711,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if _retryable_now and _budget.should_retry(attempt):
                                 print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/4...")
                                 _bump_retry()
-                                if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
+                                if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
                                     release_account(_acct, success=False, error_class=_err_class)
                                     try:
                                         cookies, _acct = acquire_account()
