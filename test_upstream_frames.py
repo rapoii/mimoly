@@ -903,6 +903,15 @@ def main():
         check("classify_status maps 429", rel.classify_status(429) == rel.ERROR_RATE_LIMIT)
         check("classify_status maps 401", rel.classify_status(401) == rel.ERROR_AUTH)
         check("should_rotate_key(auth) true", rel.should_rotate_key(rel.ERROR_AUTH) is True)
+
+        # Test auto-healing normalize_tool_args
+        if hasattr(m, "normalize_tool_args"):
+            # clarify string question -> questions array of dicts
+            cl_fixed = m.normalize_tool_args("clarify", {"question": "Mau warna apa?"})
+            check("clarify question normalized to questions array", isinstance(cl_fixed.get("questions"), list) and cl_fixed["questions"][0]["question"] == "Mau warna apa?")
+            # write_file with code -> content alias
+            wf_fixed = m.coerce_tool_args("write_file", {"path": "a.txt", "code": "hello"}, available_tools=[{"type": "function", "function": {"name": "write_file", "parameters": {"properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}}])
+            check("write_file code coerced to content", wf_fixed.get("content") == "hello")
     except Exception as e:
         check("helper module importable", False, repr(e))
 

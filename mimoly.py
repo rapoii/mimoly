@@ -1802,7 +1802,7 @@ def validate_tool_args(name: str, args: dict,
 TOOL_PARAM_ALIASES = {
     # File tools (read_file, write_file, patch)
     "path": ["file", "filename", "filepath", "target", "path_to_file", "file_path", "target_file", "path_name"],
-    "content": ["text", "body", "data", "file_content", "contents", "code_to_write", "source_code"],
+    "content": ["text", "body", "data", "file_content", "contents", "code_to_write", "source_code", "code"],
     "code": ["script", "python", "command", "cmd", "code_snippet", "input", "py", "source"],
     "pattern": ["query", "regex", "search", "keyword", "term", "filter", "search_term"],
     "old_string": ["old_code", "find", "search", "original", "old", "target_string", "before", "match"],
@@ -1915,6 +1915,32 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
                 args["content"] = json.dumps(other_keys, indent=2)
                 for k in list(other_keys.keys()):
                     args.pop(k, None)
+
+    # Auto-repair for clarify tool arguments
+    if name == "clarify":
+        if "questions" not in args:
+            if "question" in args:
+                q_val = args.pop("question")
+                if isinstance(q_val, list):
+                    args["questions"] = [{"question": str(item)} if not isinstance(item, dict) else item for item in q_val]
+                elif isinstance(q_val, dict):
+                    args["questions"] = [q_val]
+                elif isinstance(q_val, str):
+                    entry = {"question": q_val}
+                    if "choices" in args and isinstance(args["choices"], list):
+                        entry["choices"] = args.pop("choices")
+                    args["questions"] = [entry]
+            elif "prompt" in args:
+                args["questions"] = [{"question": str(args.pop("prompt"))}]
+            elif "text" in args:
+                args["questions"] = [{"question": str(args.pop("text"))}]
+        elif isinstance(args["questions"], list):
+            args["questions"] = [
+                {"question": str(item)} if not isinstance(item, dict) else item
+                for item in args["questions"]
+            ]
+        elif isinstance(args["questions"], str):
+            args["questions"] = [{"question": args["questions"]}]
 
     # Path unwrapping if provided as a single-element list
     if "path" in args and isinstance(args["path"], list) and len(args["path"]) == 1:
