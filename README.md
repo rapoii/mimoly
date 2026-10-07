@@ -81,6 +81,25 @@ uv run python mimoly.py serve --port 8080
 - `--session-file <path>` (or `MIMOLY_SESSION_FILE`): Custom path to your `session.json`.
 - `--workspace <path>` (or `MIMOLY_WORKSPACE`): Optional workspace root directory to anchor relative file paths for agent tools. By default, relative paths are preserved as-is.
 
+#### Reliability & Scale (multi-account, overload protection)
+
+All optional — sensible defaults keep a single-account deployment working unchanged.
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `MIMOLY_ACCOUNTS_FILE` | *(unset)* | Path to a JSON list of accounts `[{"id": "...", "cookies": {...}}, ...]`. Enables multi-account rotation; falls back to `session.json` when unset. |
+| `MIMOLY_MAX_INFLIGHT` | `0` (unlimited) | Max concurrent in-flight requests. Excess returns a fast **503** (`Retry-After`) instead of queueing unboundedly. |
+| `MIMOLY_CACHE_TTL` | `300` | TTL (seconds) of the exact-match cache for **non-streaming** requests. `0` disables. |
+| `MIMOLY_CACHE_MAXSIZE` | `256` | Max cached responses (LRU). |
+| `MIMOLY_MAX_CONNECTIONS` | `200` | httpx connection-pool size (shared client, keep-alive reused across requests). |
+| `MIMOLY_ACCOUNT_MAX_FAILURES` | `3` | Consecutive failures before an account's circuit breaker opens. |
+| `MIMOLY_ACCOUNT_COOLDOWN_BASE` / `_MAX` | `30` / `1800` | Exponential per-account cooldown (seconds), reset on success. |
+
+**Behaviour:** requests pick the least-busy healthy account; a `401/403` parks that
+account and rotates to the next one pre-stream; `429/5xx` retry the same key with
+full-jitter backoff inside a wall-clock budget; retries never happen after the
+first streamed byte. `/health` and `/v1/stats` expose live pool/admission/cache state.
+
 Verify the server is running:
 ```bash
 curl http://127.0.0.1:8080/health
