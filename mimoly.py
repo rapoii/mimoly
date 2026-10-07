@@ -1536,7 +1536,7 @@ def detect_agent_framework(request: Request, body: dict) -> str:
     return "default"
 
 
-def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, framework: str = "default") -> str:
+def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, framework: str = "default", is_ultraspeed: bool = False) -> str:
     """Format dialogue history and tool definitions cleanly for MiMo."""
     if not tools:
         formatted = []
@@ -1666,7 +1666,8 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     if history:
         recent_hist = []
         current_hist_len = 0
-        for item in reversed(history[-16:]):
+        hist_window = 6 if is_ultraspeed else 16
+        for item in reversed(history[-hist_window:]):
             item_len = len(item) + 1
             if current_hist_len + item_len <= hist_budget or not recent_hist:
                 recent_hist.append(item)
@@ -3167,7 +3168,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     if tools or len(messages) > 1:
         agent_framework = detect_agent_framework(request, body)
         print(f"[mimoly] agent_framework={agent_framework} (profile: {AGENT_PROFILES[agent_framework]['label']})")
-        user_prompt = build_agent_prompt(messages, tools, framework=agent_framework)
+        is_ultra = (target_upstream_model == "mimo-v2.5-pro-ultraspeed")
+        user_prompt = build_agent_prompt(messages, tools, framework=agent_framework, is_ultraspeed=is_ultra)
     else:
         user_prompt = ""
         for m in reversed(messages):
