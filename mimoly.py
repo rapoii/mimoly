@@ -2861,6 +2861,7 @@ async def handle_chat_completion(body: dict, request: Request):
                                         yield "data: [DONE]\n\n"
                                         return
 
+                                    last_event = None
                                     line_iter = resp.aiter_lines().__aiter__()
                                     while True:
                                         try:
@@ -2873,6 +2874,9 @@ async def handle_chat_completion(body: dict, request: Request):
                                             break
 
                                         if not line:
+                                            continue
+                                        if line.startswith("event:"):
+                                            last_event = line[6:].strip()
                                             continue
                                         if not line.startswith("data:"):
                                             continue
@@ -2910,8 +2914,8 @@ async def handle_chat_completion(body: dict, request: Request):
                                             continue
 
                                         content_piece = parsed.get("content", "")
-                                        # Ignore dialog ID event
-                                        if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
+                                        # Ignore dialog ID event (both standard cluster and FastChat 6-digit IDs)
+                                        if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
                                             continue
 
                                         if not content_piece:
@@ -3217,7 +3221,11 @@ async def handle_chat_completion(body: dict, request: Request):
                                 status_code=resp.status_code
                             )
 
+                        last_event = None
                         async for line in resp.aiter_lines():
+                            if line.startswith("event:"):
+                                last_event = line[6:].strip()
+                                continue
                             if not line.startswith("data:"):
                                 continue
                             data_str = line[5:].strip()
@@ -3250,7 +3258,7 @@ async def handle_chat_completion(body: dict, request: Request):
                                 continue
 
                             content_piece = parsed.get("content", "")
-                            if content_piece and content_piece.isdigit() and len(content_piece) >= 7:
+                            if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
                                 continue
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
@@ -3417,7 +3425,11 @@ def cmd_test(args):
                     return
 
                 print("[mimoly] Streaming response:")
+                last_event = None
                 async for line in resp.aiter_lines():
+                    if line.startswith("event:"):
+                        last_event = line[6:].strip()
+                        continue
                     if line.startswith("data:"):
                         data_str = line[5:].strip()
                         if data_str == "[DONE]":
@@ -3425,7 +3437,9 @@ def cmd_test(args):
                         try:
                             d = json.loads(data_str)
                             c = d.get("content", "")
-                            if c and not (c.isdigit() and len(c) >= 7):
+                            if last_event == "dialogId" or (d.get("type") is None and str(c).isdigit()) or (str(c).isdigit() and len(str(c)) >= 5):
+                                continue
+                            if c:
                                 if first_token:
                                     ttft = time.time() - start_time
                                     first_token = False
