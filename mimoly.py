@@ -3209,28 +3209,14 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _finish_reason = "stop"
             _stream_out_text = ""
             _stream_tools_called: List[str] = []
+            _initial_chunk_sent = False
             try:
-                # Initial role chunk only if tools are not requested
-                if not tools:
-                    initial_chunk = {
-                        "id": completion_id,
-                        "object": "chat.completion.chunk",
-                        "created": created_time,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": ""},
-                            "finish_reason": None
-                        }]
-                    }
-                    yield f"data: {json.dumps(initial_chunk)}\n\n"
-
                 try:
-                    _budget = RetryBudget(max_attempts=3, base_delay=0.5, max_delay=8.0, deadline=25.0)
+                    _budget = RetryBudget(max_attempts=4, base_delay=1.0, max_delay=10.0, deadline=35.0, min_delay=0.2)
                     _budget.start()
                     _stream_started = False  # "started guard": no retry after first content byte
                     _last_error_class = None
-                    for attempt in range(3):
+                    for attempt in range(4):
                         try:
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
@@ -3241,7 +3227,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _retryable_now = is_retryable(_err_class) or (
                                             _err_class == ERROR_AUTH and can_rotate_account())
                                         if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
-                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/3...")
+                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/4...")
                                             _bump_retry()
                                             # Rotate to another credential when the failure is key-specific.
                                             if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
@@ -3252,7 +3238,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                     _cur_upstream_url, _ = get_upstream_endpoints(target_upstream_model, _ph)
                                                 except Exception:
                                                     pass
-                                            await _budget.sleep(attempt)
+                                            await _budget.sleep(attempt, error_class=_err_class)
                                             continue
                                         if resp.status_code in (401, 403):
                                             print(f"[mimoly] Upstream auth failed HTTP {resp.status_code}. Session cookies in session.json may be expired!")
@@ -3281,6 +3267,22 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _acct_released = True
                                         yield "data: [DONE]\n\n"
                                         return
+
+                                    _stream_started = True
+                                    if not tools and not _initial_chunk_sent:
+                                        initial_chunk = {
+                                            "id": completion_id,
+                                            "object": "chat.completion.chunk",
+                                            "created": created_time,
+                                            "model": model,
+                                            "choices": [{
+                                                "index": 0,
+                                                "delta": {"role": "assistant", "content": ""},
+                                                "finish_reason": None
+                                            }]
+                                        }
+                                        yield f"data: {json.dumps(initial_chunk)}\n\n"
+                                        _initial_chunk_sent = True
 
                                     last_event = None
                                     line_iter = resp.aiter_lines().__aiter__()
@@ -3642,9 +3644,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
-        _budget = RetryBudget(max_attempts=3, base_delay=0.5, max_delay=8.0, deadline=25.0)
+        _budget = RetryBudget(max_attempts=4, base_delay=1.0, max_delay=10.0, deadline=35.0, min_delay=0.2)
         _budget.start()
-        for attempt in range(3):
+        for attempt in range(4):
             try:
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
@@ -3654,7 +3656,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             _retryable_now = is_retryable(_err_class) or (
                                 _err_class == ERROR_AUTH and can_rotate_account())
                             if _retryable_now and _budget.should_retry(attempt):
-                                print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/3...")
+                                print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/4...")
                                 _bump_retry()
                                 if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
                                     release_account(_acct, success=False, error_class=_err_class)
@@ -3664,7 +3666,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         upstream_url, _ = get_upstream_endpoints(target_upstream_model, ph_param)
                                     except Exception:
                                         pass
-                                await _budget.sleep(attempt)
+                                await _budget.sleep(attempt, error_class=_err_class)
                                 continue
                             if resp.status_code in (401, 403):
                                 print(f"[mimoly] Upstream auth failed HTTP {resp.status_code}. Session cookies in session.json may be expired!")

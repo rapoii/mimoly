@@ -88,11 +88,13 @@ class RetryBudget:
 
     def __init__(self, max_attempts: int = 3, base_delay: float = 0.5,
                  max_delay: float = 8.0, deadline: float = 20.0,
+                 min_delay: float = 0.0,
                  rng: Optional[random.Random] = None):
         self.max_attempts = max(1, int(max_attempts))
         self.base_delay = max(0.0, float(base_delay))
         self.max_delay = max(0.0, float(max_delay))
         self.deadline = max(0.0, float(deadline))
+        self.min_delay = max(0.0, float(min_delay))
         self._rng = rng or random.Random()
         self._started_at: Optional[float] = None
 
@@ -113,17 +115,22 @@ class RetryBudget:
             return False
         return not self.expired()
 
-    def next_delay(self, attempt: int) -> float:
-        """Full-jitter backoff: uniform(0, min(base * 2**attempt, max_delay))."""
+    def next_delay(self, attempt: int, error_class: Optional[str] = None) -> float:
+        """Full-jitter backoff: uniform(floor, min(base * 2**attempt, max_delay))."""
         if self.expired():
             return 0.0
         ceiling = min(self.base_delay * (2 ** max(0, attempt)), self.max_delay)
+        floor = self.min_delay
+        if error_class == ERROR_RATE_LIMIT:
+            # 429 rate limits need a real pause for upstream tokens to replenish
+            floor = max(floor, 1.5)
+            ceiling = max(ceiling, floor + 1.0)
         if ceiling <= 0.0:
             return 0.0
-        return self._rng.uniform(0.0, ceiling)
+        return self._rng.uniform(floor, max(floor, ceiling))
 
-    async def sleep(self, attempt: int) -> None:
-        d = self.next_delay(attempt)
+    async def sleep(self, attempt: int, error_class: Optional[str] = None) -> None:
+        d = self.next_delay(attempt, error_class=error_class)
         if d > 0:
             await asyncio.sleep(d)
 
