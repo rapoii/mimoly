@@ -168,6 +168,9 @@ UPSTREAM_BUSY_PHRASES = (
     "Service is temporarily unavailable",
     "query is too long",
     "query too long",
+    "Hello, I cannot answer this question at the moment",
+    "let's talk about something else instead",
+    "我现在无法回答这个问题",
 )
 
 
