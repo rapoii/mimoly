@@ -8,6 +8,7 @@ Compatible with OpenRouter, 9router, Hermes, OpenCode, Claude Code, and Cherry S
 
 import argparse
 import asyncio
+import contextvars
 import json
 import os
 import re
@@ -51,6 +52,7 @@ try:
     from mimoly_reliability import (
         AdmissionController,
         AccountPool,
+        RateLimiter,
         RetryBudget,
         TTLCache,
         classify_exception,
@@ -102,6 +104,12 @@ except ImportError:
         def __init__(self, *a, **k): self.in_flight = 0; self.rejected = 0
         def acquire(self): return True
         def release(self): pass
+
+    class RateLimiter:  # type: ignore
+        def __init__(self, *a, **k): self.rejected = 0; self.allowed = 0
+        def allow(self, key): return True
+        def retry_after(self, key): return 0.0
+        def stats(self): return {}
 
     class TTLCache:  # type: ignore
         def __init__(self, *a, **k): pass
@@ -230,6 +238,8 @@ _MIMOLY_ADMISSION_LIMIT = int(os.environ.get("MIMOLY_MAX_INFLIGHT", "0"))  # 0 =
 _MIMOLY_CACHE_TTL = float(os.environ.get("MIMOLY_CACHE_TTL", "300"))
 _MIMOLY_CACHE_MAX = int(os.environ.get("MIMOLY_CACHE_MAXSIZE", "256"))
 _MIMOLY_ACCOUNTS_FILE = os.environ.get("MIMOLY_ACCOUNTS_FILE", "")
+_MIMOLY_RATE_LIMIT = int(os.environ.get("MIMOLY_RATE_LIMIT", "0"))          # per-IP req/window; 0 = off
+_MIMOLY_RATE_WINDOW = float(os.environ.get("MIMOLY_RATE_WINDOW", "60"))     # seconds
 
 _HTTP_LIMITS = httpx.Limits(
     max_connections=_MIMOLY_MAX_CONNECTIONS,
@@ -270,6 +280,20 @@ async def close_shared_client() -> None:
 _ACCOUNT_POOL: Optional["AccountPool"] = None
 _ADMISSION = AdmissionController(_MIMOLY_ADMISSION_LIMIT)
 _RESPONSE_CACHE = TTLCache(maxsize=_MIMOLY_CACHE_MAX, ttl=_MIMOLY_CACHE_TTL)
+_RATE_LIMITER = RateLimiter(limit=_MIMOLY_RATE_LIMIT, window=_MIMOLY_RATE_WINDOW)
+
+# Per-request retry counter, surfaced to callers via the X-Retry-Attempt-Count
+# response header (non-streaming) so a rising retry rate is visible.
+_RETRY_ATTEMPTS: "contextvars.ContextVar[int]" = contextvars.ContextVar("mimoly_retry_attempts", default=0)
+
+
+def _bump_retry() -> None:
+    """Record one retry for the current request (also feeds the global counter)."""
+    try:
+        _RETRY_ATTEMPTS.set(_RETRY_ATTEMPTS.get() + 1)
+    except Exception:
+        pass
+    _STATS["retries"] = _STATS.get("retries", 0) + 1
 
 
 def load_account_pool() -> Optional["AccountPool"]:
@@ -2189,6 +2213,7 @@ async def health():
             "rejected": _ADMISSION.rejected,
         },
         "cache": _RESPONSE_CACHE.stats(),
+        "rate_limit": _RATE_LIMITER.stats(),
     }
 
 
@@ -2242,6 +2267,9 @@ async def stats():
                 "accepted": _ADMISSION.accepted,
                 "rejected": _ADMISSION.rejected,
             },
+            "rate_limit": _RATE_LIMITER.stats(),
+            "retries_total": _STATS.get("retries", 0),
+            "rate_limited_total": _STATS.get("rate_limited", 0),
             "accounts": (get_account_pool().snapshot() if get_account_pool() else []),
         },
     }
@@ -2882,15 +2910,47 @@ async def audio_transcriptions(request: Request):
         return JSONResponse({"error": f"ASR transcription failed: {e}"}, status_code=502)
 
 
-async def handle_chat_completion(body: dict, request: Request):
-    """Public entrypoint: admission control + exact response cache wrapper.
+def _client_key(request: Request) -> str:
+    """Best-effort client identity for rate limiting (honours common proxy headers)."""
+    try:
+        for hdr in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
+            v = request.headers.get(hdr)
+            if v:
+                return v.split(",")[0].strip()
+        if request.client and request.client.host:
+            return request.client.host
+    except Exception:
+        pass
+    return "unknown"
 
+
+async def handle_chat_completion(body: dict, request: Request):
+    """Public entrypoint: rate limit + admission control + exact cache wrapper.
+
+    * Per-IP rate limit (opt-in via MIMOLY_RATE_LIMIT) returns 429 + Retry-After.
     * Admission control rejects fast (HTTP 503) when too many requests are
       already in flight, instead of letting an upstream slowdown queue forever.
     * Exact-match TTL cache serves identical *non-streaming* requests without
       touching upstream (streaming requests always bypass the cache).
     * The actual work lives in ``_handle_chat_completion_inner``.
     """
+    # --- per-IP rate limit (cheap, before anything else) ---
+    if _MIMOLY_RATE_LIMIT:
+        _ck = _client_key(request)
+        if not _RATE_LIMITER.allow(_ck):
+            _STATS["errors"] += 1
+            _STATS["rate_limited"] = _STATS.get("rate_limited", 0) + 1
+            _retry = max(1, int(_RATE_LIMITER.retry_after(_ck) + 0.999))
+            return JSONResponse(
+                {"error": {
+                    "message": f"Rate limit exceeded: max {_MIMOLY_RATE_LIMIT} requests per {_MIMOLY_RATE_WINDOW:g}s.",
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                }},
+                status_code=429,
+                headers={"Retry-After": str(_retry)},
+            )
+
     _admitted = _ADMISSION.acquire()
     if not _admitted:
         _STATS["errors"] += 1
@@ -2925,6 +2985,13 @@ async def handle_chat_completion(body: dict, request: Request):
                 and "choices" in result and "error" not in result):
             try:
                 _RESPONSE_CACHE.set(cache_key, result)
+            except Exception:
+                pass
+        # Surface retry activity to the caller (non-streaming; streaming already
+        # started so headers are immutable by then).
+        if isinstance(result, dict):
+            try:
+                result = JSONResponse(result, headers={"X-Retry-Attempt-Count": str(_RETRY_ATTEMPTS.get())})
             except Exception:
                 pass
         if isinstance(result, StreamingResponse):
@@ -3108,6 +3175,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _cur_cookies = cookies
             _cur_upstream_url = upstream_url
             _cur_acct = _acct
+            _acct_released = False
             accumulated_chunks = []
             usage_data = None
             in_thinking = False
@@ -3148,6 +3216,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                             _err_class == ERROR_AUTH and can_rotate_account())
                                         if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
                                             print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/3...")
+                                            _bump_retry()
                                             # Rotate to another credential when the failure is key-specific.
                                             if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
                                                 release_account(_cur_acct, success=False, error_class=_err_class)
@@ -3183,17 +3252,30 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                         finish_reason="error",
                                                         latency_ms=(time.time() - _req_start) * 1000.0)
                                         release_account(_cur_acct, success=False, error_class=_err_class)
+                                        _acct_released = True
                                         yield "data: [DONE]\n\n"
                                         return
 
                                     last_event = None
                                     line_iter = resp.aiter_lines().__aiter__()
+                                    _disc_checked = 0.0
                                     while True:
                                         try:
                                             line = await asyncio.wait_for(line_iter.__anext__(), timeout=10.0)
                                         except asyncio.TimeoutError:
                                             # Send SSE comment ping to prevent reverse proxies/clients timing out during deep reasoning
                                             yield ": keep-alive\n\n"
+                                            # Also poll for client disconnect during long idle gaps
+                                            # (e.g. deep thinking) so we can cancel upstream work.
+                                            _now = time.time()
+                                            if _now - _disc_checked >= 5.0:
+                                                _disc_checked = _now
+                                                try:
+                                                    if await request.is_disconnected():
+                                                        print("[mimoly] Client disconnected during stream; cancelling upstream.")
+                                                        break
+                                                except Exception:
+                                                    pass
                                             continue
                                         except StopAsyncIteration:
                                             break
@@ -3334,6 +3416,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if tools and is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/3...")
                                 accumulated_chunks.clear()
+                                _bump_retry()
                                 await _budget.sleep(attempt)
                                 continue
                             break
@@ -3342,10 +3425,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if not _budget.should_retry(attempt) or _stream_started:
                                 raise conn_err
                             print(f"[mimoly] Upstream stream retry {attempt+1}/3 due to: {conn_err}")
+                            _bump_retry()
                             await _budget.sleep(attempt)
 
                     # Reached here with content (or after final attempt): account served OK.
                     release_account(_cur_acct, success=True)
+                    _acct_released = True
 
                 except Exception as e:
                     err_chunk = {
@@ -3495,7 +3580,13 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             finally:
                 # Safety net: if the client disconnected or the stream was
                 # cancelled before the normal finalize ran, record what we have
-                # so a request never stays "pending" forever.
+                # so a request never stays "pending" forever, and always return
+                # the pooled account (release is idempotent per account).
+                if not _acct_released:
+                    # A client-initiated abort is not the account's fault: return it
+                    # as a success so frequent cancels can never trip its breaker.
+                    release_account(_cur_acct, success=True)
+                    _acct_released = True
                 if _req_rec is not None and not _req_rec.get("finish_reason"):
                     _elapsed_ms = (time.time() - _req_start) * 1000.0
                     _record_latency("latency_ms", _elapsed_ms)
@@ -3538,6 +3629,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 _err_class == ERROR_AUTH and can_rotate_account())
                             if _retryable_now and _budget.should_retry(attempt):
                                 print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/3...")
+                                _bump_retry()
                                 if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
                                     release_account(_acct, success=False, error_class=_err_class)
                                     try:
@@ -3610,6 +3702,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 if is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
                     print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/3...")
                     accumulated_chunks.clear()
+                    _bump_retry()
                     await _budget.sleep(attempt)
                     continue
                 break
@@ -3618,6 +3711,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 if not _budget.should_retry(attempt):
                     raise conn_err
                 print(f"[mimoly] Upstream non-stream retry {attempt+1}/3 due to: {conn_err}")
+                _bump_retry()
                 await _budget.sleep(attempt)
 
         # Reached here with a complete answer: the account served us fine.

@@ -89,6 +89,8 @@ All optional — sensible defaults keep a single-account deployment working unch
 | --- | --- | --- |
 | `MIMOLY_ACCOUNTS_FILE` | *(unset)* | Path to a JSON list of accounts `[{"id": "...", "cookies": {...}}, ...]`. Enables multi-account rotation; falls back to `session.json` when unset. |
 | `MIMOLY_MAX_INFLIGHT` | `0` (unlimited) | Max concurrent in-flight requests. Excess returns a fast **503** (`Retry-After`) instead of queueing unboundedly. |
+| `MIMOLY_RATE_LIMIT` | `0` (off) | Per-IP request limit within `MIMOLY_RATE_WINDOW`. Excess returns **429** + `Retry-After`. |
+| `MIMOLY_RATE_WINDOW` | `60` | Rate-limit window in seconds. |
 | `MIMOLY_CACHE_TTL` | `300` | TTL (seconds) of the exact-match cache for **non-streaming** requests. `0` disables. |
 | `MIMOLY_CACHE_MAXSIZE` | `256` | Max cached responses (LRU). |
 | `MIMOLY_MAX_CONNECTIONS` | `200` | httpx connection-pool size (shared client, keep-alive reused across requests). |
@@ -98,7 +100,10 @@ All optional — sensible defaults keep a single-account deployment working unch
 **Behaviour:** requests pick the least-busy healthy account; a `401/403` parks that
 account and rotates to the next one pre-stream; `429/5xx` retry the same key with
 full-jitter backoff inside a wall-clock budget; retries never happen after the
-first streamed byte. `/health` and `/v1/stats` expose live pool/admission/cache state.
+first streamed byte. Non-streaming responses carry an `X-Retry-Attempt-Count`
+header. A client that disconnects mid-stream cancels the upstream work and the
+account is released without penalty. `/health` and `/v1/stats` expose live
+pool/admission/cache/rate-limit state.
 
 Verify the server is running:
 ```bash

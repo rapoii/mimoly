@@ -884,6 +884,28 @@ def main():
         out_types = [item.get("type") for item in res_out.get("output", [])]
         check("responses output includes message and function_call", "message" in out_types and "function_call" in out_types)
 
+    # ------------------------------------------------------------------
+    # [unit] reliability wiring (Tier 1 + Tier 2)
+    # ------------------------------------------------------------------
+    print("[unit] reliability wiring")
+    check("mimoly_reliability importable", getattr(m, "RELIABILITY_AVAILABLE", False) is True)
+    check("shared client helper exists", hasattr(m, "get_shared_client"))
+    check("account pool helper exists", hasattr(m, "acquire_account") and hasattr(m, "release_account"))
+    check("rate limiter wired", hasattr(m, "_RATE_LIMITER"))
+    check("admission wired", hasattr(m, "_ADMISSION"))
+    check("response cache wired", hasattr(m, "_RESPONSE_CACHE"))
+    check("client-key helper exists", hasattr(m, "_client_key"))
+    check("retry counter wired", hasattr(m, "_bump_retry") and hasattr(m, "_RETRY_ATTEMPTS"))
+    # RateLimiter + taxonomy present in the helper module
+    try:
+        import mimoly_reliability as rel
+        check("RateLimiter in helper", hasattr(rel, "RateLimiter"))
+        check("classify_status maps 429", rel.classify_status(429) == rel.ERROR_RATE_LIMIT)
+        check("classify_status maps 401", rel.classify_status(401) == rel.ERROR_AUTH)
+        check("should_rotate_key(auth) true", rel.should_rotate_key(rel.ERROR_AUTH) is True)
+    except Exception as e:
+        check("helper module importable", False, repr(e))
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

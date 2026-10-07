@@ -21,7 +21,7 @@ import json
 import random
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
@@ -270,6 +270,73 @@ class AdmissionController:
         with self._lock:
             if self._in_flight > 0:
                 self._in_flight -= 1
+
+
+# ---------------------------------------------------------------------------
+# Per-key sliding-window rate limiter
+# ---------------------------------------------------------------------------
+class RateLimiter:
+    """Sliding-window rate limiter keyed by an arbitrary string (IP, tenant, ...).
+
+    A deque of hit timestamps per key; entries older than ``window`` are dropped
+    on each check. ``limit=0`` disables limiting. Cheap (no locks held during
+    computation beyond a tiny critical section) and allocation-light.
+    """
+
+    def __init__(self, limit: int = 0, window: float = 60.0, max_keys: int = 10000):
+        self.limit = max(0, int(limit))
+        self.window = max(0.0, float(window))
+        self.max_keys = max(1, int(max_keys))
+        self._hits: "OrderedDict[str, deque]" = OrderedDict()
+        self._lock = threading.Lock()
+        self.rejected = 0
+        self.allowed = 0
+
+    def allow(self, key: str) -> bool:
+        """Record a hit for ``key`` and return True if it is within the limit."""
+        if self.limit == 0 or self.window <= 0:
+            self.allowed += 1
+            return True
+        now = time.monotonic()
+        cutoff = now - self.window
+        with self._lock:
+            dq = self._hits.get(key)
+            if dq is None:
+                dq = deque()
+                self._hits[key] = dq
+            while dq and dq[0] <= cutoff:
+                dq.popleft()
+            if len(dq) >= self.limit:
+                self.rejected += 1
+                self._hits.move_to_end(key)
+                return False
+            dq.append(now)
+            self._hits.move_to_end(key)
+            while len(self._hits) > self.max_keys:
+                self._hits.popitem(last=False)
+            self.allowed += 1
+            return True
+
+    def retry_after(self, key: str) -> float:
+        """Seconds until the oldest hit for ``key`` leaves the window (0 if free)."""
+        if self.limit == 0 or self.window <= 0:
+            return 0.0
+        with self._lock:
+            dq = self._hits.get(key)
+            if not dq:
+                return 0.0
+            oldest = dq[0]
+        remaining = (oldest + self.window) - time.monotonic()
+        return max(0.0, remaining)
+
+    def stats(self) -> Dict[str, Any]:
+        return {
+            "limit": self.limit,
+            "window": self.window,
+            "tracked_keys": len(self._hits),
+            "allowed": self.allowed,
+            "rejected": self.rejected,
+        }
 
 
 # ---------------------------------------------------------------------------

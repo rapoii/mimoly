@@ -197,6 +197,30 @@ def main():
         exp.set("x", 1)
         check("expired entry misses", exp.get("x") is None)
 
+    # ------------------------------------------------------------------
+    # [unit] per-key sliding-window rate limiter
+    # ------------------------------------------------------------------
+    print("[unit] rate limiter")
+    RL = getattr(m, "RateLimiter", None)
+    check("RateLimiter exists", RL is not None)
+    if RL is not None:
+        rl = RL(limit=3, window=60.0)
+        check("first three allowed", all(rl.allow("ip1") for _ in range(3)))
+        check("fourth rejected", not rl.allow("ip1"))
+        check("different key unaffected", rl.allow("ip2"))
+        check("rejected counter increments", rl.rejected >= 1)
+        check("retry_after positive", rl.retry_after("ip1") > 0)
+        # window expiry frees capacity (limit=0 disables)
+        off = RL(limit=0, window=60.0)
+        check("limit=0 means unlimited", all(off.allow("x") for _ in range(50)))
+        # window slides
+        import time as _t
+        win = RL(limit=1, window=0.2)
+        check("first allowed", win.allow("k"))
+        check("second blocked in window", not win.allow("k"))
+        _t.sleep(0.25)
+        check("allowed again after window", win.allow("k"))
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
