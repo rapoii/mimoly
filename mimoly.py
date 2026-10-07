@@ -382,7 +382,7 @@ def can_rotate_account() -> bool:
 
 def get_upstream_endpoints(model: str, ph: str) -> Tuple[str, str]:
     """Resolve upstream chat and conversation save URLs based on model cluster."""
-    is_ultraspeed = (model == "mimo-v2.6-pro-ultraspeed-studio")
+    is_ultraspeed = (model in ("mimo-v2.6-pro-ultraspeed-studio", "mimo-v2.5-pro-ultraspeed", "mimo-v2.6-pro-ultraspeed", "mimo-ultraspeed"))
     prefix = "https://aistudio.xiaomimimo.com/fastchat" if is_ultraspeed else "https://aistudio.xiaomimimo.com"
     quoted_ph = urllib.parse.quote(ph)
     chat_url = f"{prefix}/open-apis/bot/chat?xiaomichatbot_ph={quoted_ph}"
@@ -405,7 +405,7 @@ MODEL_CATALOG = [
     {
         "id": "mimo-v2.6-pro-ultraspeed-studio",
         "name": "MiMo-V2.6-Pro-UltraSpeed (Fast Multimodal Reasoning)",
-        "upstream_model": "mimo-v2.6-pro-ultraspeed-studio",
+        "upstream_model": "mimo-v2.5-pro-ultraspeed",
         "description": "Xiaomi fast-response multimodal model with deep thinking capabilities."
     },
 ]
@@ -419,9 +419,10 @@ MODEL_ALIASES = {
     "mimo-pro": "mimo-v2.6-pro",
     "mimo": "mimo-v2.6-pro",
     # UltraSpeed
-    "mimo-v2.6-pro-ultraspeed": "mimo-v2.6-pro-ultraspeed-studio",
-    "mimo-v2.6-pro-ultraspeed-studio": "mimo-v2.6-pro-ultraspeed-studio",
-    "mimo-ultraspeed": "mimo-v2.6-pro-ultraspeed-studio",
+    "mimo-v2.6-pro-ultraspeed": "mimo-v2.5-pro-ultraspeed",
+    "mimo-v2.6-pro-ultraspeed-studio": "mimo-v2.5-pro-ultraspeed",
+    "mimo-ultraspeed": "mimo-v2.5-pro-ultraspeed",
+    "mimo-v2.5-pro-ultraspeed": "mimo-v2.5-pro-ultraspeed",
     # Flash / Fast
     "mimo-v2.6-flash": "mimo-v2.6-flash",
     "mimo-v2.5": "mimo-v2.6-flash",

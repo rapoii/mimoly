@@ -730,7 +730,7 @@ def main():
     print("[unit] model matrix & dynamic discovery")
 
     # Test 16: Ultraspeed model alias exists
-    check("MODEL_ALIASES maps ultraspeed", "mimo-v2.6-pro-ultraspeed" in m.MODEL_ALIASES and m.MODEL_ALIASES["mimo-v2.6-pro-ultraspeed"] == "mimo-v2.6-pro-ultraspeed-studio")
+    check("MODEL_ALIASES maps ultraspeed", "mimo-v2.6-pro-ultraspeed" in m.MODEL_ALIASES and m.MODEL_ALIASES["mimo-v2.6-pro-ultraspeed"] == "mimo-v2.5-pro-ultraspeed")
     check("MODEL_CATALOG contains ultraspeed", any(cat["id"] in ("mimo-v2.6-pro-ultraspeed", "mimo-v2.6-pro-ultraspeed-studio") for cat in m.MODEL_CATALOG))
 
     # Test 17: sync_upstream_models helper exists and handles config payload
