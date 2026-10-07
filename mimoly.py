@@ -3323,6 +3323,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                     last_event = None
                                     line_iter = resp.aiter_lines().__aiter__()
                                     _disc_checked = 0.0
+                                    _upstream_was_busy = False
                                     while True:
                                         try:
                                             line = await asyncio.wait_for(line_iter.__anext__(), timeout=10.0)
@@ -3391,6 +3392,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
 
                                         if not content_piece:
                                             continue
+
+                                        # Detect upstream rate-limit or busy messages before streaming begins
+                                        if not _stream_started and is_upstream_busy(content_piece):
+                                            print(f"[mimoly] Upstream emitted busy phrase in frame: {content_piece.strip()!r}")
+                                            _upstream_was_busy = True
+                                            break
 
                                         # Time-to-first-token (stream): first real content chunk
                                         if _first_token_at is None:
@@ -3477,11 +3484,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                 }
                                                 yield f"data: {json.dumps(chunk)}\n\n"
                                                 accumulated_chunks.append(clean_piece)
-                            if tools and is_upstream_busy("".join(accumulated_chunks)) and attempt < 3:
+                            if (_upstream_was_busy or (tools and is_upstream_busy("".join(accumulated_chunks)))) and attempt < 3:
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/4...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
-                                await asyncio.sleep(2.0 * (attempt + 1))
+                                await asyncio.sleep(2.5 * (attempt + 1))
                                 continue
                             break
                         except Exception as conn_err:
