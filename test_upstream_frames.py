@@ -16,7 +16,9 @@ import os
 import sys
 import urllib.request
 
-MIMOLY = "mimoly.py"
+# Resolve mimoly.py next to THIS test file so the suite runs from any CWD
+# (e.g. `hermes verify` invokes it from the workspace root).
+MIMOLY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mimoly.py")
 
 
 def load_mimoly():

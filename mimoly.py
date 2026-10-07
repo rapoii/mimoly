@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 import uuid
@@ -38,6 +39,76 @@ try:
 except ImportError:
     JSON_REPAIR_AVAILABLE = False
     json_repair_loads = None
+
+# Reliability primitives (error taxonomy, retry budget, account pool,
+# admission control, exact TTL cache) — plain stdlib, no new dependencies.
+# Ensure the module's own directory is importable when mimoly.py is loaded by
+# path (e.g. importlib in the test suite or `hermes verify` from another CWD).
+_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _MODULE_DIR not in sys.path:
+    sys.path.insert(0, _MODULE_DIR)
+try:
+    from mimoly_reliability import (
+        AdmissionController,
+        AccountPool,
+        RetryBudget,
+        TTLCache,
+        classify_exception,
+        classify_status,
+        is_retryable,
+        should_rotate_key,
+        ERROR_AUTH,
+        ERROR_CLIENT,
+        ERROR_GATEWAY,
+        ERROR_NETWORK,
+        ERROR_RATE_LIMIT,
+        ERROR_SERVER,
+    )
+    RELIABILITY_AVAILABLE = True
+except ImportError:
+    RELIABILITY_AVAILABLE = False
+
+    # Minimal no-op fallbacks so mimoly still runs if the helper module is absent.
+    ERROR_AUTH = "auth"; ERROR_CLIENT = "client_error"; ERROR_GATEWAY = "gateway_error"
+    ERROR_NETWORK = "network"; ERROR_RATE_LIMIT = "rate_limit"; ERROR_SERVER = "server_error"
+
+    def classify_status(_code):  # type: ignore
+        return None
+
+    def classify_exception(_exc):  # type: ignore
+        return ERROR_GATEWAY
+
+    def is_retryable(_cls):  # type: ignore
+        return False
+
+    def should_rotate_key(_cls):  # type: ignore
+        return False
+
+    class RetryBudget:  # type: ignore
+        def __init__(self, *a, **k): pass
+        def start(self): pass
+        def should_retry(self, attempt): return False
+        def next_delay(self, attempt): return 0.0
+        async def sleep(self, attempt): return None
+
+    class AccountPool:  # type: ignore
+        def __init__(self, *a, **k): self.accounts = []
+        def acquire(self): return None
+        def release(self, *a, **k): pass
+        def healthy_count(self): return 0
+        def snapshot(self): return []
+
+    class AdmissionController:  # type: ignore
+        def __init__(self, *a, **k): self.in_flight = 0; self.rejected = 0
+        def acquire(self): return True
+        def release(self): pass
+
+    class TTLCache:  # type: ignore
+        def __init__(self, *a, **k): pass
+        def make_key(self, body): return ""
+        def get(self, key): return None
+        def set(self, key, value): pass
+        def stats(self): return {}
 
 
 def safe_json_loads(text: str, default=None):
@@ -147,6 +218,132 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8080
 CHAT_API_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/chat"
 CHAT_CONV_SAVE_URL = "https://aistudio.xiaomimimo.com/open-apis/chat/conversation/save"
+
+# ---------------------------------------------------------------------------
+# Reliability & scale knobs (env-overridable)
+# ---------------------------------------------------------------------------
+# One shared AsyncClient => connection pooling + TLS session reuse across ALL
+# requests (previously a fresh client per request wasted handshakes).
+_MIMOLY_MAX_CONNECTIONS = int(os.environ.get("MIMOLY_MAX_CONNECTIONS", "200"))
+_MIMOLY_MAX_KEEPALIVE = int(os.environ.get("MIMOLY_MAX_KEEPALIVE", "50"))
+_MIMOLY_ADMISSION_LIMIT = int(os.environ.get("MIMOLY_MAX_INFLIGHT", "0"))  # 0 = disabled
+_MIMOLY_CACHE_TTL = float(os.environ.get("MIMOLY_CACHE_TTL", "300"))
+_MIMOLY_CACHE_MAX = int(os.environ.get("MIMOLY_CACHE_MAXSIZE", "256"))
+_MIMOLY_ACCOUNTS_FILE = os.environ.get("MIMOLY_ACCOUNTS_FILE", "")
+
+_HTTP_LIMITS = httpx.Limits(
+    max_connections=_MIMOLY_MAX_CONNECTIONS,
+    max_keepalive_connections=_MIMOLY_MAX_KEEPALIVE,
+)
+# Upstream MiMo streams can run >60s during deep thinking; a read timeout is
+# applied per-chunk via asyncio.wait_for in the stream loop, so the client-level
+# timeout stays generous while still bounding a truly dead connection.
+_UPSTREAM_TIMEOUT = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=30.0)
+
+_SHARED_CLIENT: Optional["httpx.AsyncClient"] = None
+
+
+def get_shared_client() -> "httpx.AsyncClient":
+    """Return the process-wide AsyncClient (lazily created, connection-pooled)."""
+    global _SHARED_CLIENT
+    if _SHARED_CLIENT is None or _SHARED_CLIENT.is_closed:
+        _SHARED_CLIENT = httpx.AsyncClient(
+            timeout=_UPSTREAM_TIMEOUT,
+            limits=_HTTP_LIMITS,
+            follow_redirects=False,
+        )
+    return _SHARED_CLIENT
+
+
+async def close_shared_client() -> None:
+    global _SHARED_CLIENT
+    if _SHARED_CLIENT is not None and not _SHARED_CLIENT.is_closed:
+        try:
+            await _SHARED_CLIENT.aclose()
+        except Exception:
+            pass
+    _SHARED_CLIENT = None
+
+
+# Account pool (multi-credential rotation). Populated at startup from
+# MIMOLY_ACCOUNTS_FILE (JSON list of {id, cookies}) and/or session.json.
+_ACCOUNT_POOL: Optional["AccountPool"] = None
+_ADMISSION = AdmissionController(_MIMOLY_ADMISSION_LIMIT)
+_RESPONSE_CACHE = TTLCache(maxsize=_MIMOLY_CACHE_MAX, ttl=_MIMOLY_CACHE_TTL)
+
+
+def load_account_pool() -> Optional["AccountPool"]:
+    """Build the multi-account pool from a JSON file or the single session.json.
+
+    File format (``MIMOLY_ACCOUNTS_FILE``): a JSON list of accounts, each either
+    ``{"id": "...", "cookies": {...}}`` or a flat cookie dict. When the file is
+    absent we fall back to the single session.json so behaviour is unchanged.
+    """
+    global _ACCOUNT_POOL
+    accounts: List[Dict[str, Any]] = []
+
+    if _MIMOLY_ACCOUNTS_FILE and Path(_MIMOLY_ACCOUNTS_FILE).exists():
+        try:
+            with open(_MIMOLY_ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict) and "accounts" in raw:
+                raw = raw["accounts"]
+            if isinstance(raw, list):
+                for i, item in enumerate(raw):
+                    if not isinstance(item, dict):
+                        continue
+                    acct_id = str(item.get("id") or item.get("userId") or f"acct{i+1}")
+                    cookies = item.get("cookies") if isinstance(item.get("cookies"), dict) else item
+                    cookies = {k: str(v).strip('"') for k, v in cookies.items() if k != "id"}
+                    accounts.append({"id": acct_id, "cookies": cookies})
+        except Exception as e:
+            print(f"[mimoly] Warning: failed to load accounts file {_MIMOLY_ACCOUNTS_FILE}: {e}")
+
+    if not accounts:
+        try:
+            cookies = get_session_cookies()
+            accounts = [{"id": cookies.get("userId", "default"), "cookies": cookies}]
+        except Exception:
+            accounts = []
+
+    _ACCOUNT_POOL = AccountPool(
+        accounts,
+        max_failures=int(os.environ.get("MIMOLY_ACCOUNT_MAX_FAILURES", "3")),
+        cooldown_base=float(os.environ.get("MIMOLY_ACCOUNT_COOLDOWN_BASE", "30")),
+        cooldown_max=float(os.environ.get("MIMOLY_ACCOUNT_COOLDOWN_MAX", "1800")),
+    )
+    return _ACCOUNT_POOL
+
+
+def get_account_pool() -> Optional["AccountPool"]:
+    return _ACCOUNT_POOL
+
+
+def acquire_account() -> Tuple[Dict[str, str], Optional[Any]]:
+    """Return (cookies, pooled_account). Falls back to session.json cookies when
+    the pool is empty or every account is cooling down."""
+    pool = _ACCOUNT_POOL
+    if pool and pool.accounts:
+        acct = pool.acquire()
+        if acct is not None:
+            return acct.cookies, acct
+        # Pool exhausted (all cooling down): last-resort single-session cookies.
+        print("[mimoly] Warning: all pooled accounts are cooling down; using session.json fallback.")
+    return get_session_cookies(), None
+
+
+def release_account(acct: Optional[Any], success: bool, error_class: Optional[str] = None) -> None:
+    if _ACCOUNT_POOL is not None and acct is not None:
+        _ACCOUNT_POOL.release(acct, success=success, error_class=error_class)
+
+
+def can_rotate_account() -> bool:
+    """True if the pool holds more than one credential, so retrying on another
+    account is meaningful (e.g. after a key-specific 401/403)."""
+    pool = _ACCOUNT_POOL
+    if pool is None or len(pool.accounts) <= 1:
+        return False
+    return pool.healthy_count() >= 1
 
 
 def get_upstream_endpoints(model: str, ph: str) -> Tuple[str, str]:
@@ -297,6 +494,7 @@ _STATS = {
     "latency_ms": {"count": 0, "sum": 0.0, "min": None, "max": None},
     "ttft_ms": {"count": 0, "sum": 0.0, "min": None, "max": None},  # time to first token (stream)
     "timeline": {},          # {minute_epoch: {requests, errors, tool_calls, total_tokens}}
+    "cache_hits": 0,         # exact-match cache hits (non-streaming)
 }
 
 
@@ -1947,7 +2145,24 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
 @app.on_event("startup")
 async def on_startup():
     try:
+        load_account_pool()
+        pool = get_account_pool()
+        n = len(pool.accounts) if pool else 0
+        print(f"[mimoly] Account pool ready: {n} credential(s); "
+              f"admission_limit={_MIMOLY_ADMISSION_LIMIT or 'unlimited'}; "
+              f"cache={'on' if _MIMOLY_CACHE_TTL > 0 else 'off'}")
+    except Exception as e:
+        print(f"[mimoly] Warning: account pool init failed: {e}")
+    try:
         asyncio.create_task(check_cookie_health())
+    except Exception:
+        pass
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    try:
+        await close_shared_client()
     except Exception:
         pass
 
@@ -1956,12 +2171,24 @@ async def on_startup():
 @app.get("/health")
 async def health():
     cookie_status = _COOKIE_HEALTH.get("status", "unknown")
+    pool = get_account_pool()
+    pool_snap = pool.snapshot() if pool else []
     return {
         "status": "ok",
         "service": "mimoly-web2api",
         "version": "3.0.0",
         "auth_configured": SESSION_FILE.exists(),
-        "cookie_health": cookie_status
+        "cookie_health": cookie_status,
+        "accounts": {
+            "total": len(pool_snap),
+            "healthy": sum(1 for a in pool_snap if a.get("healthy")),
+        },
+        "admission": {
+            "limit": _MIMOLY_ADMISSION_LIMIT or None,
+            "in_flight": _ADMISSION.in_flight,
+            "rejected": _ADMISSION.rejected,
+        },
+        "cache": _RESPONSE_CACHE.stats(),
     }
 
 
@@ -2007,6 +2234,16 @@ async def stats():
         "model_usage": _STATS["model_usage"],
         "model_tokens": _STATS["model_tokens"],
         "recent_requests": list(_REQUEST_LOG)[::-1][:50],
+        "reliability": {
+            "cache": {**_RESPONSE_CACHE.stats(), "hits_total": _STATS.get("cache_hits", 0)},
+            "admission": {
+                "limit": _MIMOLY_ADMISSION_LIMIT or None,
+                "in_flight": _ADMISSION.in_flight,
+                "accepted": _ADMISSION.accepted,
+                "rejected": _ADMISSION.rejected,
+            },
+            "accounts": (get_account_pool().snapshot() if get_account_pool() else []),
+        },
     }
 
 
@@ -2646,6 +2883,69 @@ async def audio_transcriptions(request: Request):
 
 
 async def handle_chat_completion(body: dict, request: Request):
+    """Public entrypoint: admission control + exact response cache wrapper.
+
+    * Admission control rejects fast (HTTP 503) when too many requests are
+      already in flight, instead of letting an upstream slowdown queue forever.
+    * Exact-match TTL cache serves identical *non-streaming* requests without
+      touching upstream (streaming requests always bypass the cache).
+    * The actual work lives in ``_handle_chat_completion_inner``.
+    """
+    _admitted = _ADMISSION.acquire()
+    if not _admitted:
+        _STATS["errors"] += 1
+        return JSONResponse(
+            {"error": {
+                "message": "Server overloaded: too many in-flight requests. Please retry shortly.",
+                "type": "rate_limit_error",
+                "code": "overloaded",
+            }},
+            status_code=503,
+            headers={"Retry-After": "2"},
+        )
+
+    stream = bool(body.get("stream"))
+    cache_key = None
+    if not stream:
+        try:
+            cache_key = _RESPONSE_CACHE.make_key(body)
+            cached = _RESPONSE_CACHE.get(cache_key)
+        except Exception:
+            cached = None
+        if cached is not None:
+            _STATS["cache_hits"] = _STATS.get("cache_hits", 0) + 1
+            _ADMISSION.release()
+            return JSONResponse(cached)
+
+    defer_release = False
+    try:
+        result = await _handle_chat_completion_inner(body, request)
+        # Cache only successful, fully-formed non-streaming completions.
+        if (cache_key is not None and isinstance(result, dict)
+                and "choices" in result and "error" not in result):
+            try:
+                _RESPONSE_CACHE.set(cache_key, result)
+            except Exception:
+                pass
+        if isinstance(result, StreamingResponse):
+            defer_release = True
+            _inner_iter = result.body_iterator
+
+            async def _admitting_iter():
+                try:
+                    async for _chunk in _inner_iter:
+                        yield _chunk
+                finally:
+                    _ADMISSION.release()
+
+            result.body_iterator = _admitting_iter()
+        return result
+    finally:
+        if not defer_release:
+            _ADMISSION.release()
+
+
+async def _handle_chat_completion_inner(body: dict, request: Request):
 
     messages = body.get("messages", [])
     if not messages:
@@ -2704,9 +3004,10 @@ async def handle_chat_completion(body: dict, request: Request):
     except Exception:
         pass
 
-    # Load authentic session cookies
+    # Load authentic session cookies (from the rotating account pool if available)
+    _acct = None
     try:
-        cookies = get_session_cookies()
+        cookies, _acct = acquire_account()
     except Exception as e:
         _STATS["errors"] += 1
         _record_timeline(errors=1)
@@ -2801,6 +3102,12 @@ async def handle_chat_completion(body: dict, request: Request):
         async def sse_generator():
             # Initialize state BEFORE the try so the finally safety-net can always
             # reference them, even if the client disconnects on the very first yield.
+            # NOTE: use _cur_* locals — assigning to the closure names (upstream_url,
+            # cookies, _acct) inside a nested function would shadow them and raise
+            # UnboundLocalError on the read that happens before any assignment.
+            _cur_cookies = cookies
+            _cur_upstream_url = upstream_url
+            _cur_acct = _acct
             accumulated_chunks = []
             usage_data = None
             in_thinking = False
@@ -2825,15 +3132,32 @@ async def handle_chat_completion(body: dict, request: Request):
                     yield f"data: {json.dumps(initial_chunk)}\n\n"
 
                 try:
+                    _budget = RetryBudget(max_attempts=3, base_delay=0.5, max_delay=8.0, deadline=25.0)
+                    _budget.start()
+                    _stream_started = False  # "started guard": no retry after first content byte
+                    _last_error_class = None
                     for attempt in range(3):
                         try:
-                            async with httpx.AsyncClient(timeout=180.0) as client:
-                                async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
+                            _client = get_shared_client()
+                            async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
                                     if resp.status_code != 200:
                                         err_text = await resp.aread()
-                                        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2 and (tools or not accumulated_chunks):
-                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code}, retrying attempt {attempt+1}/3...")
-                                            await asyncio.sleep(1.5 * (attempt + 1))
+                                        _err_class = classify_status(resp.status_code)
+                                        _last_error_class = _err_class
+                                        _retryable_now = is_retryable(_err_class) or (
+                                            _err_class == ERROR_AUTH and can_rotate_account())
+                                        if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
+                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/3...")
+                                            # Rotate to another credential when the failure is key-specific.
+                                            if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
+                                                release_account(_cur_acct, success=False, error_class=_err_class)
+                                                try:
+                                                    _cur_cookies, _cur_acct = acquire_account()
+                                                    _ph = _cur_cookies.get("xiaomichatbot_ph", "")
+                                                    _cur_upstream_url, _ = get_upstream_endpoints(target_upstream_model, _ph)
+                                                except Exception:
+                                                    pass
+                                            await _budget.sleep(attempt)
                                             continue
                                         if resp.status_code in (401, 403):
                                             print(f"[mimoly] Upstream auth failed HTTP {resp.status_code}. Session cookies in session.json may be expired!")
@@ -2858,6 +3182,7 @@ async def handle_chat_completion(body: dict, request: Request):
                                         _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
                                                         finish_reason="error",
                                                         latency_ms=(time.time() - _req_start) * 1000.0)
+                                        release_account(_cur_acct, success=False, error_class=_err_class)
                                         yield "data: [DONE]\n\n"
                                         return
 
@@ -2924,6 +3249,7 @@ async def handle_chat_completion(body: dict, request: Request):
                                         # Time-to-first-token (stream): first real content chunk
                                         if _first_token_at is None:
                                             _first_token_at = time.time()
+                                            _stream_started = True
                                             _record_latency("ttft_ms", (_first_token_at - _req_start) * 1000.0)
 
                                         if "<think>" in content_piece:
@@ -3008,14 +3334,18 @@ async def handle_chat_completion(body: dict, request: Request):
                             if tools and is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/3...")
                                 accumulated_chunks.clear()
-                                await asyncio.sleep(2.0)
+                                await _budget.sleep(attempt)
                                 continue
                             break
                         except Exception as conn_err:
-                            if attempt == 2:
+                            _conn_class = classify_exception(conn_err)
+                            if not _budget.should_retry(attempt) or _stream_started:
                                 raise conn_err
                             print(f"[mimoly] Upstream stream retry {attempt+1}/3 due to: {conn_err}")
-                            await asyncio.sleep(2.0)
+                            await _budget.sleep(attempt)
+
+                    # Reached here with content (or after final attempt): account served OK.
+                    release_account(_cur_acct, success=True)
 
                 except Exception as e:
                     err_chunk = {
@@ -3195,15 +3525,28 @@ async def handle_chat_completion(body: dict, request: Request):
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
+        _budget = RetryBudget(max_attempts=3, base_delay=0.5, max_delay=8.0, deadline=25.0)
+        _budget.start()
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=180.0) as client:
-                    async with client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
+                _client = get_shared_client()
+                async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:
                             err_body = await resp.aread()
-                            if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-                                print(f"[mimoly] Upstream HTTP {resp.status_code}, retrying attempt {attempt+1}/3...")
-                                await asyncio.sleep(1.5 * (attempt + 1))
+                            _err_class = classify_status(resp.status_code)
+                            _retryable_now = is_retryable(_err_class) or (
+                                _err_class == ERROR_AUTH and can_rotate_account())
+                            if _retryable_now and _budget.should_retry(attempt):
+                                print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/3...")
+                                if should_rotate_key(_err_class) or _err_class == ERROR_AUTH:
+                                    release_account(_acct, success=False, error_class=_err_class)
+                                    try:
+                                        cookies, _acct = acquire_account()
+                                        ph_param = cookies.get("xiaomichatbot_ph", "")
+                                        upstream_url, _ = get_upstream_endpoints(target_upstream_model, ph_param)
+                                    except Exception:
+                                        pass
+                                await _budget.sleep(attempt)
                                 continue
                             if resp.status_code in (401, 403):
                                 print(f"[mimoly] Upstream auth failed HTTP {resp.status_code}. Session cookies in session.json may be expired!")
@@ -3216,6 +3559,7 @@ async def handle_chat_completion(body: dict, request: Request):
                             _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
                                             finish_reason="error",
                                             latency_ms=(time.time() - _req_start) * 1000.0)
+                            release_account(_acct, success=False, error_class=_err_class)
                             return JSONResponse(
                                 {"error": f"Upstream HTTP {resp.status_code} ({err_detail})"},
                                 status_code=resp.status_code
@@ -3266,14 +3610,18 @@ async def handle_chat_completion(body: dict, request: Request):
                 if is_upstream_busy("".join(accumulated_chunks)) and attempt < 2:
                     print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/3...")
                     accumulated_chunks.clear()
-                    await asyncio.sleep(2.0)
+                    await _budget.sleep(attempt)
                     continue
                 break
             except Exception as conn_err:
-                if attempt == 2:
+                _conn_class = classify_exception(conn_err)
+                if not _budget.should_retry(attempt):
                     raise conn_err
                 print(f"[mimoly] Upstream non-stream retry {attempt+1}/3 due to: {conn_err}")
-                await asyncio.sleep(2.0)
+                await _budget.sleep(attempt)
+
+        # Reached here with a complete answer: the account served us fine.
+        release_account(_acct, success=True)
 
     except Exception as e:
         _STATS["errors"] += 1
@@ -3281,6 +3629,7 @@ async def handle_chat_completion(body: dict, request: Request):
         _record_finish_reason("error")
         _finish_request(_req_rec, output=f"[error] upstream: {e}", finish_reason="error",
                         latency_ms=(time.time() - _req_start) * 1000.0)
+        release_account(_acct, success=False, error_class=classify_exception(e))
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
 
     full_reply = "".join(accumulated_chunks)
