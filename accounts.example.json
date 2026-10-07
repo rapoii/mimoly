@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy to accounts.json and fill in real cookies. Point MIMOLY_ACCOUNTS_FILE at it. Each entry needs the 3 auth cookies (userId, xiaomichatbot_ph, xiaomichatbot_serviceToken). Add as many accounts as you like; requests are spread across the healthiest/least-busy ones and a dead key is parked automatically.",
+  "accounts": [
+    {
+      "id": "account-1",
+      "cookies": {
+        "userId": "<REDACTED>",
+        "xiaomichatbot_ph": "<REDACTED>",
+        "xiaomichatbot_serviceToken": "<REDACTED>"
+      }
+    },
+    {
+      "id": "account-2",
+      "cookies": {
+        "userId": "<REDACTED>",
+        "xiaomichatbot_ph": "<REDACTED>",
+        "xiaomichatbot_serviceToken": "<REDACTED>"
+      }
+    }
+  ]
+}

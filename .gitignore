@@ -8,6 +8,7 @@ venv/
 
 # Mimoly runtime
 session.json
+accounts.json
 last_request.json
 *.log
 
