@@ -2852,6 +2852,23 @@ async def ollama_show():
     }
 
 
+async def ensure_new_conversation(save_url: str, headers: dict, cookies: dict, model_name: str) -> str:
+    """Register a fresh conversation ID with Xiaomi upstream using shared client."""
+    new_cid = uuid.uuid4().hex
+    try:
+        client = get_shared_client()
+        await client.post(
+            save_url,
+            headers=headers,
+            cookies=cookies,
+            json={"conversationId": new_cid, "type": "chat", "title": f"Mimoly {model_name}"},
+            timeout=8.0,
+        )
+    except Exception as e:
+        print(f"[mimoly] Warning: conversation registration failed: {e}")
+    return new_cid
+
+
 @app.post("/v1/chat/completions")
 @app.post("/chat/completions")
 async def chat_completions(request: Request):
@@ -3180,22 +3197,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     }
 
     # Ensure conversation is registered in Xiaomi database
-    conv_id = uuid.uuid4().hex
-    for attempt in range(3):
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as save_client:
-                await save_client.post(
-                    save_url,
-                    headers=headers,
-                    cookies=cookies,
-                    json={"conversationId": conv_id, "type": "chat", "title": f"Mimoly {target_upstream_model}"}
-                )
-            break
-        except Exception as e:
-            if attempt == 2:
-                print(f"[mimoly] Warning: failed to save conversation: {e}")
-            else:
-                await asyncio.sleep(1.0)
+    conv_id = await ensure_new_conversation(save_url, headers, cookies, target_upstream_model)
 
     # Multimodal: Detect images and upload to Xiaomi OSS
     multi_medias = []
@@ -3253,6 +3255,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     _stream_started = False  # "started guard": no retry after first content byte
                     _last_error_class = None
                     for attempt in range(4):
+                        upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
@@ -3488,6 +3491,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/4...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
+                                new_cid = await ensure_new_conversation(save_url, headers, _cur_cookies, target_upstream_model)
+                                upstream_payload["conversationId"] = new_cid
+                                upstream_payload["msgId"] = uuid.uuid4().hex
                                 await asyncio.sleep(2.5 * (attempt + 1))
                                 continue
                             break
@@ -3690,6 +3696,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
         _budget = RetryBudget(max_attempts=4, base_delay=1.0, max_delay=10.0, deadline=35.0, min_delay=0.2)
         _budget.start()
         for attempt in range(4):
+            upstream_payload["msgId"] = uuid.uuid4().hex
             try:
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
@@ -3774,7 +3781,10 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/4...")
                     accumulated_chunks.clear()
                     _bump_retry()
-                    await asyncio.sleep(2.0 * (attempt + 1))
+                    new_cid = await ensure_new_conversation(save_url, headers, cookies, target_upstream_model)
+                    upstream_payload["conversationId"] = new_cid
+                    upstream_payload["msgId"] = uuid.uuid4().hex
+                    await asyncio.sleep(2.5 * (attempt + 1))
                     continue
                 break
             except Exception as conn_err:
