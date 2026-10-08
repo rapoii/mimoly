@@ -3263,6 +3263,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
                     _budget.start()
                     _stream_started = False  # "started guard": no retry after first content byte
+                    _content_started = False # True only when actual delta.content is yielded
                     _last_error_class = None
                     for attempt in range(5):
                         upstream_payload["msgId"] = uuid.uuid4().hex
@@ -3406,8 +3407,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         if not content_piece:
                                             continue
 
-                                        # Detect upstream rate-limit or busy messages before streaming begins
-                                        if not _stream_started and is_upstream_busy(content_piece):
+                                        # Detect upstream rate-limit or busy messages before content streaming begins
+                                        if (not _content_started or tools) and is_upstream_busy(content_piece):
                                             print(f"[mimoly] Upstream emitted busy phrase in frame: {content_piece.strip()!r}")
                                             _upstream_was_busy = True
                                             break
@@ -3459,6 +3460,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                         }]
                                                     }
                                                     yield f"data: {json.dumps(chunk)}\n\n"
+                                                    _content_started = True
                                                     accumulated_chunks.append(answer_part)
                                             continue
 
@@ -3496,9 +3498,10 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                     }]
                                                 }
                                                 yield f"data: {json.dumps(chunk)}\n\n"
+                                                _content_started = True
                                                 accumulated_chunks.append(clean_piece)
-                            if (_upstream_was_busy or (tools and is_upstream_busy("".join(accumulated_chunks)))) and attempt < 3:
-                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/4...")
+                            if (_upstream_was_busy or is_upstream_busy("".join(accumulated_chunks))) and attempt < 4:
+                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/5...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
                                 new_cid = await ensure_new_conversation(save_url, headers, _cur_cookies, target_upstream_model)
@@ -3787,8 +3790,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
 
-                if is_upstream_busy("".join(accumulated_chunks)) and attempt < 3:
-                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/4...")
+                if is_upstream_busy("".join(accumulated_chunks)) and attempt < 4:
+                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/5...")
                     accumulated_chunks.clear()
                     _bump_retry()
                     new_cid = await ensure_new_conversation(save_url, headers, cookies, target_upstream_model)
