@@ -3607,6 +3607,18 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 _saw_reasoning = False
                                 _first_token_at = None
                                 _bump_retry()
+                                # Nudge the model out of analysis-paralysis: a bare retry
+                                # often reproduces the same reasoning-only stall. Append an
+                                # explicit directive to act on the very next turn.
+                                if tools:
+                                    upstream_payload["query"] = (
+                                        user_prompt
+                                        + "\n\n[INSTRUKSI LANJUTAN] Kamu sudah cukup menganalisis. "
+                                          "SEKARANG langsung lakukan aksi nyata: panggil tool berikutnya "
+                                          "(mis. write_file untuk menulis file, atau terminal untuk menjalankan perintah), "
+                                          "ATAU jika tugas benar-benar sudah selesai, tulis jawaban akhir yang jelas. "
+                                          "Jangan hanya berpikir tanpa output."
+                                    )
                                 upstream_payload["msgId"] = uuid.uuid4().hex
                                 await asyncio.sleep(1.5 * (attempt + 1))
                                 continue
