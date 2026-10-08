@@ -3349,12 +3349,20 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 await _acct_lock.acquire()
             try:
                 try:
-                    _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
+                    # The FastChat (ultraspeed) cluster rate-limits on a ~60s window;
+                    # a 50s retry deadline gives up just before the limiter clears.
+                    # Give ultraspeed a longer, wider retry budget so a transient 429
+                    # resolves instead of failing the turn.
+                    if target_upstream_model == "mimo-v2.5-pro-ultraspeed":
+                        _max_attempts, _deadline, _max_delay = 8, 200.0, 30.0
+                    else:
+                        _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
+                    _budget = RetryBudget(max_attempts=_max_attempts, base_delay=1.0, max_delay=_max_delay, deadline=_deadline, min_delay=0.2)
                     _budget.start()
                     _stream_started = False  # "started guard": no retry after first content byte
                     _content_started = False # True only when actual delta.content is yielded
                     _last_error_class = None
-                    for attempt in range(5):
+                    for attempt in range(_max_attempts):
                         _upstream_was_busy = False
                         upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
@@ -3374,7 +3382,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _retryable_now = is_retryable(_err_class) or (
                                             _err_class == ERROR_AUTH and can_rotate_account())
                                         if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
-                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/5...")
+                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/{_max_attempts}...")
                                             _bump_retry()
                                             # Rotate to another credential when the failure is key-specific AND multiple accounts exist.
                                             if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
