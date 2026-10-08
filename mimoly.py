@@ -1672,16 +1672,57 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         prompt_lines.append("Instruksi Sistem:\n" + sys_text)
 
     if tools:
-        tool_desc = []
-        for t in tools:
-            fn = t.get("function", {})
-            name = fn.get("name")
-            desc = (fn.get("description") or "").split("\n")[0].split(". ")[0].strip()
-            params = list(fn.get("parameters", {}).get("properties", {}).keys())
-            param_str = ", ".join(params)
-            tool_desc.append(f"- {name}({param_str}): {desc}")
-
         profile = AGENT_PROFILES.get(framework, AGENT_PROFILES["default"])
+
+        # Reserve a slice of the prompt budget for the tool catalogue. Hermes can
+        # send 250+ tools (every loaded MCP contributes dozens), and rendering
+        # each one in full crowds out the conversation history and the goal block
+        # — the two things the model actually needs to keep working. Render the
+        # catalogue in progressively terser tiers until it fits. Tool NAMES must
+        # always survive (the model cannot call a tool it cannot see); it is the
+        # history that yields budget, so the bare-name tier gets a generous cap.
+        def _render_tools(include_desc: bool, include_params: bool) -> List[str]:
+            lines = []
+            for t in tools:
+                fn = t.get("function", {})
+                name = fn.get("name")
+                if not name:
+                    continue
+                entry = name
+                if include_params:
+                    params = list(fn.get("parameters", {}).get("properties", {}).keys())
+                    if params:
+                        entry += f"({', '.join(params)})"
+                if include_desc:
+                    desc = (fn.get("description") or "").split("\n")[0].split(". ")[0].strip()
+                    if desc:
+                        entry += f": {desc[:80]}"
+                lines.append(f"- {entry}")
+            return lines
+
+        # Tier 1: names + params + short descriptions (most informative).
+        tool_desc = _render_tools(True, True)
+        if len("\n".join(tool_desc)) > int(MAX_PROMPT_BUDGET * 0.35):
+            # Tier 2: names + params.
+            tool_desc = _render_tools(False, True)
+        if len("\n".join(tool_desc)) > int(MAX_PROMPT_BUDGET * 0.45):
+            # Tier 3: bare names — must all fit.
+            tool_desc = _render_tools(False, False)
+        if len("\n".join(tool_desc)) > int(MAX_PROMPT_BUDGET * 0.60):
+            # Extreme case (hundreds of long names): pack comma-separated.
+            names = [line[2:] for line in tool_desc]
+            packed, cur = [], ""
+            for nm in names:
+                if len(cur) + len(nm) + 2 > 160 or not cur:
+                    if cur:
+                        packed.append(cur)
+                    cur = nm
+                else:
+                    cur += ", " + nm
+            if cur:
+                packed.append(cur)
+            tool_desc = ["\n".join(packed)]
+
         intro_text = profile["tool_intro"].replace("{tool_desc}", "\n".join(tool_desc))
         prompt_lines.append(intro_text)
 
