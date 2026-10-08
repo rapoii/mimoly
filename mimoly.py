@@ -3335,6 +3335,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _stream_tools_called: List[str] = []
             _initial_chunk_sent = False
             _saw_reasoning = False  # model emitted <think> content but no answer/tool call yet
+            _empty_retries = 0      # separate, stricter cap so we don't amplify 429s
             _acct_lock = _cur_acct.get_lock() if (_cur_acct and hasattr(_cur_acct, "get_lock")) else None
             if _acct_lock:
                 await _acct_lock.acquire()
@@ -3350,7 +3351,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                         upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
                             if _cur_acct and hasattr(_cur_acct, "wait_throttle"):
-                                await _cur_acct.wait_throttle(min_interval=2.0)
+                                # The FastChat (ultraspeed) cluster enforces a much
+                                # stricter pacing budget than the standard cluster;
+                                # 2s bursts trip its 429 limiter. Space ultraspeed
+                                # calls further apart so retries don't self-throttle.
+                                _min_interval = 5.0 if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.0
+                                await _cur_acct.wait_throttle(min_interval=_min_interval)
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
                                     if resp.status_code != 200:
@@ -3593,34 +3599,37 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 upstream_payload["msgId"] = uuid.uuid4().hex
                                 await asyncio.sleep(2.5 * (attempt + 1))
                                 continue
-                            # Reasoning-only dead end: the model spent its whole budget
-                            # inside <think> and emitted no answer text and no tool call.
-                            # Retrying is safe here because nothing was yielded to the
-                            # client yet (no accumulated answer chunks). Without this the
-                            # turn ends with an empty message and the downstream agent
-                            # reads a fake "done" fallback, stalling the whole task.
-                            if (not accumulated_chunks and _saw_reasoning and not _content_started
-                                    and attempt < 4 and (tools or not _initial_chunk_sent)):
-                                print(f"[mimoly] Upstream returned reasoning-only (no answer/tool call), retrying attempt {attempt+1}/5...")
+                            # Empty / reasoning-only dead end: upstream yielded no
+                            # answer text and no tool call (the model spent its budget
+                            # inside <think>, or returned nothing at all). Retrying is
+                            # safe here because no answer chunk was emitted yet. Without
+                            # this the turn ends empty and the downstream agent reads a
+                            # placeholder as if the task were done, stalling the run.
+                            if (not accumulated_chunks and not _content_started
+                                    and _empty_retries < 2 and tools):
+                                _kind = "reasoning-only" if _saw_reasoning else "empty"
+                                _empty_retries += 1
+                                print(f"[mimoly] Upstream returned {_kind} turn (no answer/tool call), retrying {_empty_retries}/2...")
                                 accumulated_chunks.clear()
                                 in_thinking = False
                                 _saw_reasoning = False
                                 _first_token_at = None
                                 _bump_retry()
                                 # Nudge the model out of analysis-paralysis: a bare retry
-                                # often reproduces the same reasoning-only stall. Append an
-                                # explicit directive to act on the very next turn.
-                                if tools:
-                                    upstream_payload["query"] = (
-                                        user_prompt
-                                        + "\n\n[INSTRUKSI LANJUTAN] Kamu sudah cukup menganalisis. "
-                                          "SEKARANG langsung lakukan aksi nyata: panggil tool berikutnya "
-                                          "(mis. write_file untuk menulis file, atau terminal untuk menjalankan perintah), "
-                                          "ATAU jika tugas benar-benar sudah selesai, tulis jawaban akhir yang jelas. "
-                                          "Jangan hanya berpikir tanpa output."
-                                    )
+                                # often reproduces the same stall. Append an explicit
+                                # directive to act on the very next turn.
+                                upstream_payload["query"] = (
+                                    user_prompt
+                                    + "\n\n[INSTRUKSI LANJUTAN] Kamu sudah cukup menganalisis. "
+                                      "SEKARANG langsung lakukan aksi nyata: panggil tool berikutnya "
+                                      "(mis. write_file untuk menulis file, atau terminal untuk menjalankan perintah), "
+                                      "ATAU jika tugas benar-benar sudah selesai, tulis jawaban akhir yang jelas. "
+                                      "Jangan hanya berpikir tanpa output."
+                                )
                                 upstream_payload["msgId"] = uuid.uuid4().hex
-                                await asyncio.sleep(1.5 * (attempt + 1))
+                                # Long backoff: FastChat throttles hard, so an aggressive
+                                # retry loop just converts one empty turn into a 429 storm.
+                                await asyncio.sleep(4.0 * _empty_retries)
                                 continue
                             break
                         except Exception as conn_err:
@@ -3665,6 +3674,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     raw_calls, clean_text = smart_extract_tool_calls(full_reply, user_prompt, tools)
                     _stream_out_text = clean_text or full_reply
                     _stream_tools_called = [tc.get("name", "?") for tc in raw_calls]
+                    if not raw_calls:
+                        # Diagnostic: no tool call parsed. Log a short preview so we can
+                        # tell "model wrote prose" from "model emitted malformed JSON
+                        # drift that the parser rejected" (the latter stalls the task).
+                        _preview = (full_reply or "")[:400].replace("\n", "\\n")
+                        print(f"[mimoly] No tool call parsed from upstream reply (len={len(full_reply)}). preview={_preview!r}")
                     if raw_calls:
                         _STATS["tool_calls"] += len(raw_calls)
                         _record_timeline(tool_calls=len(raw_calls))
