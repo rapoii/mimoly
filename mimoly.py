@@ -1660,7 +1660,9 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
 
     main_goal = user_goals[-1] if user_goals else ""
 
-    MAX_PROMPT_BUDGET = 26000
+    # FastChat (ultraspeed) is measurably more refusal-prone with large contexts;
+    # keep its prompt tighter than the standard cluster's 26k budget.
+    MAX_PROMPT_BUDGET = 20000 if is_ultraspeed else 26000
 
     prompt_lines = []
     if system_instructions:
