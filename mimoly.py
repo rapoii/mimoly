@@ -372,6 +372,13 @@ def acquire_account() -> Tuple[Dict[str, str], Optional[Any]]:
 def release_account(acct: Optional[Any], success: bool, error_class: Optional[str] = None) -> None:
     if _ACCOUNT_POOL is not None and acct is not None:
         _ACCOUNT_POOL.release(acct, success=success, error_class=error_class)
+        if hasattr(acct, "get_lock"):
+            try:
+                l = acct.get_lock()
+                if l.locked():
+                    l.release()
+            except RuntimeError:
+                pass
 
 
 def can_rotate_account() -> bool:
@@ -3258,6 +3265,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _stream_out_text = ""
             _stream_tools_called: List[str] = []
             _initial_chunk_sent = False
+            _acct_lock = _cur_acct.get_lock() if (_cur_acct and hasattr(_cur_acct, "get_lock")) else None
+            if _acct_lock:
+                await _acct_lock.acquire()
             try:
                 try:
                     _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
@@ -3268,6 +3278,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     for attempt in range(5):
                         upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
+                            if _cur_acct and hasattr(_cur_acct, "wait_throttle"):
+                                await _cur_acct.wait_throttle(min_interval=2.0)
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
                                     if resp.status_code != 200:
@@ -3705,12 +3717,17 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     accumulated_chunks = []
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
+    _acct_lock = _acct.get_lock() if (_acct and hasattr(_acct, "get_lock")) else None
+    if _acct_lock:
+        await _acct_lock.acquire()
     try:
         _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
         _budget.start()
         for attempt in range(5):
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
+                if _acct and hasattr(_acct, "wait_throttle"):
+                    await _acct.wait_throttle(min_interval=2.0)
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:

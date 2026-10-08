@@ -142,7 +142,7 @@ class PooledAccount:
     """A single upstream credential (Xiaomi session) with health bookkeeping."""
 
     __slots__ = ("id", "cookies", "failures", "in_flight", "cooldown_until",
-                 "last_error", "uses", "successes")
+                 "last_error", "uses", "successes", "lock", "last_call_at")
 
     def __init__(self, account_id: str, cookies: Dict[str, str]):
         self.id = account_id
@@ -153,6 +153,21 @@ class PooledAccount:
         self.last_error: Optional[str] = None
         self.uses = 0
         self.successes = 0
+        self.lock: Optional[asyncio.Lock] = None
+        self.last_call_at = 0.0
+
+    def get_lock(self) -> asyncio.Lock:
+        if self.lock is None:
+            self.lock = asyncio.Lock()
+        return self.lock
+
+    async def wait_throttle(self, min_interval: float = 2.0) -> None:
+        """Throttle requests per account so upstream rate limiter is never violated."""
+        now = time.monotonic()
+        elapsed = now - self.last_call_at
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+        self.last_call_at = time.monotonic()
 
     def healthy(self) -> bool:
         return self.cooldown_until <= time.monotonic()
