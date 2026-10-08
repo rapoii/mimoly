@@ -3174,18 +3174,6 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     except Exception:
         pass
 
-    # Load authentic session cookies (from the rotating account pool if available)
-    _acct = None
-    try:
-        cookies, _acct = acquire_account()
-    except Exception as e:
-        _STATS["errors"] += 1
-        _record_timeline(errors=1)
-        _record_finish_reason("error")
-        _finish_request(_req_rec, output=f"[error] {e}", finish_reason="error",
-                        latency_ms=(time.time() - _req_start) * 1000.0)
-        return JSONResponse({"error": str(e)}, status_code=401)
-
     # Fast path for background session title generation: Hermes CLI fires this in background on turn 1
     if not stream and len(messages) <= 2:
         sys_txt = str(messages[0].get("content", "")) if messages else ""
@@ -3193,6 +3181,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             user_txt = str(messages[-1].get("content", "")) if len(messages) > 1 else "Chat"
             words = [w for w in re.sub(r"[^\w\s-]", "", user_txt).split() if len(w) > 1][:5]
             title = " ".join(words).title() or "Diskusi Projek"
+            _finish_request(_req_rec, output=title, finish_reason="stop", latency_ms=0.5)
             return {
                 "id": completion_id,
                 "object": "chat.completion",
@@ -3205,6 +3194,18 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 }],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
             }
+
+    # Load authentic session cookies (from the rotating account pool if available)
+    _acct = None
+    try:
+        cookies, _acct = acquire_account()
+    except Exception as e:
+        _STATS["errors"] += 1
+        _record_timeline(errors=1)
+        _record_finish_reason("error")
+        _finish_request(_req_rec, output=f"[error] {e}", finish_reason="error",
+                        latency_ms=(time.time() - _req_start) * 1000.0)
+        return JSONResponse({"error": str(e)}, status_code=401)
 
     # Format unified prompt (with per-framework tool template)
     if tools or len(messages) > 1:
