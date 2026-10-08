@@ -3597,6 +3597,17 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 new_cid = await ensure_new_conversation(save_url, headers, _cur_cookies, target_upstream_model)
                                 upstream_payload["conversationId"] = new_cid
                                 upstream_payload["msgId"] = uuid.uuid4().hex
+                                # The upstream "I cannot answer" refusal correlates with
+                                # an over-long / busy prompt. On retry, shrink the query to
+                                # a compact form (goal + the most recent observation) so the
+                                # model gets a clean, short request instead of the same
+                                # oversized context that just triggered the refusal.
+                                if tools and len(user_prompt) > 6000:
+                                    _compact = build_agent_prompt(
+                                        messages[-4:], tools, framework=agent_framework, is_ultraspeed=is_ultra
+                                    )
+                                    upstream_payload["query"] = _compact
+                                    print(f"[mimoly] Compacted retry prompt: {len(user_prompt)} -> {len(_compact)} chars")
                                 await asyncio.sleep(2.5 * (attempt + 1))
                                 continue
                             # Empty / reasoning-only dead end: upstream yielded no
