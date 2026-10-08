@@ -1741,7 +1741,15 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
 
     assembled = "\n\n".join(prompt_lines)
     if len(assembled) > MAX_PROMPT_BUDGET:
-        assembled = assembled[:MAX_PROMPT_BUDGET]
+        # Blind truncation from the tail would cut the goal block (added last),
+        # leaving the model with no task at all. Keep the head and, crucially,
+        # the goal block, then trim the middle.
+        tail = goal_block or ""
+        if tail and tail in assembled:
+            head = assembled[:MAX_PROMPT_BUDGET - len(tail) - 20]
+            assembled = head + "\n\n...[riwayat disingkat]...\n\n" + tail
+        else:
+            assembled = assembled[:MAX_PROMPT_BUDGET]
     return assembled
 
 
