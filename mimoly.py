@@ -1774,29 +1774,37 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     # executed this session. The recent-history window above can drop old turns
     # under budget pressure; without this the model "forgets" it already called
     # a tool and repeats it until the framework's anti-loop guard kills the run.
+    ledger_block = ""
     if action_ledger:
         seen = []
         for _kind, desc in action_ledger:
             if desc not in seen:
                 seen.append(desc)
         ledger_lines = [f"- {d}" for d in seen[-40:]]
-        prompt_lines.append(
+        ledger_block = (
             "Tool yang SUDAH kamu jalankan di sesi ini (JANGAN ulangi tanpa alasan baru):\n"
             + "\n".join(ledger_lines)
         )
+        prompt_lines.append(ledger_block)
 
     if goal_block:
         prompt_lines.append(goal_block)
 
     assembled = "\n\n".join(prompt_lines)
     if len(assembled) > MAX_PROMPT_BUDGET:
-        # Blind truncation from the tail would cut the goal block (added last),
-        # leaving the model with no task at all. Keep the head and, crucially,
-        # the goal block, then trim the middle.
-        tail = goal_block or ""
-        if tail and tail in assembled:
-            head = assembled[:MAX_PROMPT_BUDGET - len(tail) - 20]
-            assembled = head + "\n\n...[riwayat disingkat]...\n\n" + tail
+        # Blind tail truncation would cut the goal (the actual task) and the
+        # anti-loop ledger — both appended last. Keep the head plus those two
+        # blocks and drop the middle (stale history) instead.
+        marker = "\n\n...[riwayat disingkat]...\n\n"
+        keep_tail = "\n\n".join(x for x in (ledger_block, goal_block) if x)
+        # The kept tail must never consume the whole budget on its own.
+        if len(keep_tail) > MAX_PROMPT_BUDGET // 2:
+            keep_tail = keep_tail[: MAX_PROMPT_BUDGET // 2] + "\n...[disingkat]"
+        head_len = MAX_PROMPT_BUDGET - len(keep_tail) - len(marker)
+        if keep_tail and head_len > 0:
+            assembled = assembled[:head_len] + marker + keep_tail
+        elif keep_tail:
+            assembled = keep_tail[:MAX_PROMPT_BUDGET]
         else:
             assembled = assembled[:MAX_PROMPT_BUDGET]
     return assembled
