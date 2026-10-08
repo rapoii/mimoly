@@ -3624,6 +3624,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                         yield f"data: {json.dumps(tc_finish)}\n\n"
                     else:
                         # Stream remaining clean text if no tool called
+                        if not clean_text:
+                            clean_text = "Langkah telah selesai diproses."
                         chunk = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
@@ -3650,6 +3652,22 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                         }
                         yield f"data: {json.dumps(stop_chunk)}\n\n"
                 else:
+                    if not _content_started:
+                        # Model produced thinking tokens but zero trailing text
+                        fallback_msg = "Langkah telah selesai diproses."
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": fallback_msg},
+                                "finish_reason": None
+                            }]
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        _content_started = True
                     # Normal stop chunk
                     stop_chunk = {
                         "id": completion_id,
@@ -3893,6 +3911,10 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
         usage=usage_data,
         tools_called=[tc.get("name", "?") for tc in raw_calls],
     )
+
+    if not openai_tool_calls and not clean_text and not full_reply:
+        if reasoning_text:
+            clean_text = "Langkah telah selesai diproses."
 
     message_payload: Dict[str, Any] = {
         "role": "assistant",
