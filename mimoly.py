@@ -1555,7 +1555,9 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             elif r == "user":
                 formatted.append(f"User: {clean_c}")
             elif r == "assistant":
-                formatted.append(f"Assistant: {clean_c}")
+                clean_c = re.sub(r"\[Error from upstream: HTTP \d+[\s\S]*?\]", "", clean_c).strip()
+                if clean_c:
+                    formatted.append(f"Assistant: {clean_c}")
         return "\n\n".join(formatted)
 
     system_instructions = []
@@ -1609,7 +1611,9 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                         actions.append(f"{fn_name}()")
                 history.append(f"[Assistant Action]: Menjalankan tool: {', '.join(actions)}")
             elif content:
-                history.append(f"[Assistant]: {content}")
+                clean_ast = re.sub(r"\[Error from upstream: HTTP \d+[\s\S]*?\]", "", content).strip()
+                if clean_ast:
+                    history.append(f"[Assistant]: {clean_ast}")
         elif role == "tool":
             tool_name = m.get("name", "tool")
             # Beri kuota lebih besar (sampai 8000 chars) untuk tool terbaru agar file/kode tidak terpotong
@@ -3256,11 +3260,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _initial_chunk_sent = False
             try:
                 try:
-                    _budget = RetryBudget(max_attempts=4, base_delay=1.0, max_delay=10.0, deadline=35.0, min_delay=0.2)
+                    _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
                     _budget.start()
                     _stream_started = False  # "started guard": no retry after first content byte
                     _last_error_class = None
-                    for attempt in range(4):
+                    for attempt in range(5):
                         upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
                             _client = get_shared_client()
@@ -3272,7 +3276,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _retryable_now = is_retryable(_err_class) or (
                                             _err_class == ERROR_AUTH and can_rotate_account())
                                         if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
-                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/4...")
+                                            print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/5...")
                                             _bump_retry()
                                             # Rotate to another credential when the failure is key-specific AND multiple accounts exist.
                                             if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
@@ -3699,9 +3703,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
-        _budget = RetryBudget(max_attempts=4, base_delay=1.0, max_delay=10.0, deadline=35.0, min_delay=0.2)
+        _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
         _budget.start()
-        for attempt in range(4):
+        for attempt in range(5):
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
                 _client = get_shared_client()

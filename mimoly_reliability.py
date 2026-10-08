@@ -122,9 +122,9 @@ class RetryBudget:
         ceiling = min(self.base_delay * (2 ** max(0, attempt)), self.max_delay)
         floor = self.min_delay
         if error_class == ERROR_RATE_LIMIT:
-            # 429 rate limits need a real pause for upstream tokens to replenish
-            floor = max(floor, 1.5)
-            ceiling = max(ceiling, floor + 1.0)
+            # 429 rate limits need an escalating pause for upstream tokens to replenish
+            floor = max(floor, 1.8 * (attempt + 1))
+            ceiling = max(ceiling, floor + 1.5)
         if ceiling <= 0.0:
             return 0.0
         return self._rng.uniform(floor, max(floor, ceiling))
