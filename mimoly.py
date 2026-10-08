@@ -3436,6 +3436,13 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     _last_error_class = None
                     for attempt in range(_max_attempts):
                         _upstream_was_busy = False
+                        # Per-attempt parse state. These are declared before the loop
+                        # (for the timeout handlers) but MUST reset each attempt: a
+                        # leftover in_thinking=True routes the next attempt's answer
+                        # text into the reasoning channel and yields an empty turn.
+                        in_thinking = False
+                        _saw_reasoning = False
+                        _first_token_at = None
                         upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
                             if _cur_acct and hasattr(_cur_acct, "wait_throttle"):
