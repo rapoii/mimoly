@@ -3866,7 +3866,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
                 if _acct and hasattr(_acct, "wait_throttle"):
-                    await _acct.wait_throttle(min_interval=2.0)
+                    _min_interval = 5.0 if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.0
+                    await _acct.wait_throttle(min_interval=_min_interval)
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:
