@@ -4005,6 +4005,18 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         cookies, _acct = acquire_account()
                                         ph_param = cookies.get("xiaomichatbot_ph", "")
                                         upstream_url, _ = get_upstream_endpoints(target_upstream_model, ph_param)
+                                        # Mirror the streaming path: lock the rotated-in
+                                        # account and retarget the release lock, otherwise
+                                        # the replacement runs unlocked and the finally
+                                        # block releases the previous account's lock.
+                                        if _acct_lock and _acct_lock.locked():
+                                            try:
+                                                _acct_lock.release()
+                                            except RuntimeError:
+                                                pass
+                                        _acct_lock = _acct.get_lock() if (_acct and hasattr(_acct, "get_lock")) else None
+                                        if _acct_lock:
+                                            await _acct_lock.acquire()
                                     except Exception:
                                         pass
                                 await _budget.sleep(attempt, error_class=_err_class)
