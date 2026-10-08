@@ -3470,6 +3470,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                     _cur_cookies, _cur_acct = acquire_account()
                                                     _ph = _cur_cookies.get("xiaomichatbot_ph", "")
                                                     _cur_upstream_url, _ = get_upstream_endpoints(target_upstream_model, _ph)
+                                                    # The new account must be locked the same way the
+                                                    # original was, and _acct_lock must point at its
+                                                    # lock so the finally block releases the right one.
+                                                    _acct_lock = _cur_acct.get_lock() if (_cur_acct and hasattr(_cur_acct, "get_lock")) else None
+                                                    if _acct_lock:
+                                                        await _acct_lock.acquire()
                                                 except Exception:
                                                     pass
                                             await _budget.sleep(attempt, error_class=_err_class)
