@@ -1667,8 +1667,14 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     prompt_lines = []
     if system_instructions:
         sys_text = "\n\n".join(system_instructions)
-        if len(sys_text) > 5000:
-            sys_text = sys_text[:5000] + "\n...[instruksi sistem disingkat]"
+        # Keep BOTH ends. Hermes appends the runtime environment (working
+        # directory, shell rules) and execution-discipline guidance at the TAIL
+        # of its system prompt; blind head-only truncation dropped exactly those,
+        # so the agent lost track of where it was and how to run commands.
+        if len(sys_text) > 6000:
+            head = sys_text[:3800]
+            tail = sys_text[-1800:]
+            sys_text = head + "\n\n...[instruksi sistem bagian tengah disingkat]...\n\n" + tail
         prompt_lines.append("Instruksi Sistem:\n" + sys_text)
 
     if tools:
