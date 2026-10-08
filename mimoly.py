@@ -3740,7 +3740,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             _conn_class = classify_exception(conn_err)
                             if not _budget.should_retry(attempt) or _stream_started:
                                 raise conn_err
-                            print(f"[mimoly] Upstream stream retry {attempt+1}/3 due to: {conn_err}")
+                            print(f"[mimoly] Upstream stream retry {attempt+1}/{_max_attempts} due to: {conn_err}")
                             _bump_retry()
                             await _budget.sleep(attempt)
 
@@ -3984,7 +3984,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             _retryable_now = is_retryable(_err_class) or (
                                 _err_class == ERROR_AUTH and can_rotate_account())
                             if _retryable_now and _budget.should_retry(attempt):
-                                print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/4...")
+                                print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/{_max_attempts}...")
                                 _bump_retry()
                                 if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
                                     release_account(_acct, success=False, error_class=_err_class)
@@ -4071,7 +4071,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 _conn_class = classify_exception(conn_err)
                 if not _budget.should_retry(attempt):
                     raise conn_err
-                print(f"[mimoly] Upstream non-stream retry {attempt+1}/3 due to: {conn_err}")
+                print(f"[mimoly] Upstream non-stream retry {attempt+1}/{_max_attempts} due to: {conn_err}")
                 _bump_retry()
                 await _budget.sleep(attempt)
 
