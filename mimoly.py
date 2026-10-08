@@ -3186,6 +3186,26 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                         latency_ms=(time.time() - _req_start) * 1000.0)
         return JSONResponse({"error": str(e)}, status_code=401)
 
+    # Fast path for background session title generation: Hermes CLI fires this in background on turn 1
+    if not stream and len(messages) <= 2:
+        sys_txt = str(messages[0].get("content", "")) if messages else ""
+        if "name chat sessions" in sys_txt.lower() or "title that lets them find this conversation" in sys_txt.lower():
+            user_txt = str(messages[-1].get("content", "")) if len(messages) > 1 else "Chat"
+            words = [w for w in re.sub(r"[^\w\s-]", "", user_txt).split() if len(w) > 1][:5]
+            title = " ".join(words).title() or "Diskusi Projek"
+            return {
+                "id": completion_id,
+                "object": "chat.completion",
+                "created": created_time,
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": title},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+            }
+
     # Format unified prompt (with per-framework tool template)
     if tools or len(messages) > 1:
         agent_framework = detect_agent_framework(request, body)
@@ -3707,6 +3727,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 )
                 yield "data: [DONE]\n\n"
             finally:
+                if _acct_lock and hasattr(_acct_lock, "locked") and _acct_lock.locked():
+                    try:
+                        _acct_lock.release()
+                    except RuntimeError:
+                        pass
                 # Safety net: if the client disconnected or the stream was
                 # cancelled before the normal finalize ran, record what we have
                 # so a request never stays "pending" forever, and always return
@@ -3863,6 +3888,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                         latency_ms=(time.time() - _req_start) * 1000.0)
         release_account(_acct, success=False, error_class=classify_exception(e))
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
+    finally:
+        if _acct_lock and hasattr(_acct_lock, "locked") and _acct_lock.locked():
+            try:
+                _acct_lock.release()
+            except RuntimeError:
+                pass
 
     full_reply = "".join(accumulated_chunks)
 
