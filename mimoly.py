@@ -3655,8 +3655,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                 yield f"data: {json.dumps(chunk)}\n\n"
                                                 _content_started = True
                                                 accumulated_chunks.append(clean_piece)
-                            if (_upstream_was_busy or is_upstream_busy("".join(accumulated_chunks))) and attempt < 4:
-                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/5...")
+                            _busy_max = _max_attempts if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 4
+                            if (_upstream_was_busy or is_upstream_busy("".join(accumulated_chunks))) and attempt < _busy_max:
+                                print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/{_busy_max}...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
                                 new_cid = await ensure_new_conversation(save_url, headers, _cur_cookies, target_upstream_model)
@@ -3673,7 +3674,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                     )
                                     upstream_payload["query"] = _compact
                                     print(f"[mimoly] Compacted retry prompt: {len(user_prompt)} -> {len(_compact)} chars")
-                                await asyncio.sleep(2.5 * (attempt + 1))
+                                # "服务器繁忙" means the upstream cluster is overloaded, not
+                                # that we are being rate-limited — so wait longer between tries
+                                # instead of hammering a saturated backend.
+                                _busy_sleep = 6.0 * (attempt + 1) if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.5 * (attempt + 1)
+                                await asyncio.sleep(_busy_sleep)
                                 continue
                             # Empty / reasoning-only dead end: upstream yielded no
                             # answer text and no tool call (the model spent its budget
@@ -4023,14 +4028,16 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
 
-                if is_upstream_busy("".join(accumulated_chunks)) and attempt < 4:
-                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/5...")
+                _busy_max_ns = _max_attempts if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 4
+                if is_upstream_busy("".join(accumulated_chunks)) and attempt < _busy_max_ns:
+                    print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/{_busy_max_ns}...")
                     accumulated_chunks.clear()
                     _bump_retry()
                     new_cid = await ensure_new_conversation(save_url, headers, cookies, target_upstream_model)
                     upstream_payload["conversationId"] = new_cid
                     upstream_payload["msgId"] = uuid.uuid4().hex
-                    await asyncio.sleep(2.5 * (attempt + 1))
+                    _busy_sleep_ns = 6.0 * (attempt + 1) if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.5 * (attempt + 1)
+                    await asyncio.sleep(_busy_sleep_ns)
                     continue
                 break
             except Exception as conn_err:
