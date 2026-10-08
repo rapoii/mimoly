@@ -3941,9 +3941,13 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     if _acct_lock:
         await _acct_lock.acquire()
     try:
-        _budget = RetryBudget(max_attempts=5, base_delay=1.0, max_delay=12.0, deadline=50.0, min_delay=0.2)
+        if target_upstream_model == "mimo-v2.5-pro-ultraspeed":
+            _max_attempts, _deadline, _max_delay = 8, 200.0, 30.0
+        else:
+            _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
+        _budget = RetryBudget(max_attempts=_max_attempts, base_delay=1.0, max_delay=_max_delay, deadline=_deadline, min_delay=0.2)
         _budget.start()
-        for attempt in range(5):
+        for attempt in range(_max_attempts):
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
                 if _acct and hasattr(_acct, "wait_throttle"):
