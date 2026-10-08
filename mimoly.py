@@ -52,6 +52,7 @@ try:
     from mimoly_reliability import (
         AdmissionController,
         AccountPool,
+        PooledAccount,
         RateLimiter,
         RetryBudget,
         TTLCache,
@@ -356,9 +357,13 @@ def get_account_pool() -> Optional["AccountPool"]:
     return _ACCOUNT_POOL
 
 
+_FALLBACK_ACCOUNT: Optional[PooledAccount] = None
+
+
 def acquire_account() -> Tuple[Dict[str, str], Optional[Any]]:
     """Return (cookies, pooled_account). Falls back to session.json cookies when
     the pool is empty or every account is cooling down."""
+    global _FALLBACK_ACCOUNT
     pool = _ACCOUNT_POOL
     if pool and pool.accounts:
         acct = pool.acquire()
@@ -366,7 +371,10 @@ def acquire_account() -> Tuple[Dict[str, str], Optional[Any]]:
             return acct.cookies, acct
         # Pool exhausted (all cooling down): last-resort single-session cookies.
         print("[mimoly] Warning: all pooled accounts are cooling down; using session.json fallback.")
-    return get_session_cookies(), None
+    cookies = get_session_cookies()
+    if _FALLBACK_ACCOUNT is None or _FALLBACK_ACCOUNT.cookies != cookies:
+        _FALLBACK_ACCOUNT = PooledAccount("fallback", cookies)
+    return cookies, _FALLBACK_ACCOUNT
 
 
 def release_account(acct: Optional[Any], success: bool, error_class: Optional[str] = None) -> None:
@@ -3276,6 +3284,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     _content_started = False # True only when actual delta.content is yielded
                     _last_error_class = None
                     for attempt in range(5):
+                        _upstream_was_busy = False
                         upstream_payload["msgId"] = uuid.uuid4().hex
                         try:
                             if _cur_acct and hasattr(_cur_acct, "wait_throttle"):

@@ -248,6 +248,11 @@ class AccountPool:
             account.cooldown_until = time.monotonic() + self.cooldown_max
             return
 
+        if error_class == ERROR_RATE_LIMIT and len(self.accounts) <= 1:
+            # Single account pool: 429 is a pacing issue, not account death.
+            # Never open breaker or cooldown; keep account available for throttled execution.
+            return
+
         account.failures += 1
         if account.failures >= self.max_failures:
             over = account.failures - self.max_failures
