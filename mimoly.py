@@ -1554,6 +1554,20 @@ def detect_agent_framework(request: Request, body: dict) -> str:
     return "default"
 
 
+def _empty_turn_fallback(tools: Optional[List[Dict[str, Any]]] = None) -> str:
+    """Text to emit when upstream produced no answer and no tool call.
+
+    For agentic sessions (tools present) a fake "done" message makes the caller
+    stop early — it believes the task finished when it did not. Emit a neutral
+    nudge that tells the agent to keep going instead. For plain chat, a short
+    placeholder is friendlier than an empty bubble.
+    """
+    if tools:
+        return ("(Model belum menghasilkan jawaban/tool call pada turn ini. "
+                "Silakan lanjutkan langkah berikutnya, atau panggil tool yang diperlukan.)")
+    return "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"
+
+
 def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, framework: str = "default", is_ultraspeed: bool = False) -> str:
     """Format dialogue history and tool definitions cleanly for MiMo."""
     if not tools:
@@ -1578,6 +1592,7 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     system_instructions = []
     history = []
     user_goals = []
+    action_ledger = []  # ringkasan tool yang sudah dijalankan (tahan eviction riwayat)
 
     for idx, m in enumerate(messages):
         role = m.get("role", "user")
@@ -1625,6 +1640,7 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                     else:
                         actions.append(f"{fn_name}()")
                 history.append(f"[Assistant Action]: Menjalankan tool: {', '.join(actions)}")
+                action_ledger.append(("call", ", ".join(actions)))
             elif content:
                 clean_ast = re.sub(r"\[Error from upstream: HTTP \d+[\s\S]*?\]", "", content).strip()
                 if clean_ast:
@@ -1675,7 +1691,8 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                 f"Tugas utama user: {main_goal}\n"
                 f"Status terkini: Hasil eksekusi tool terbaru ada di riwayat di atas.\n"
                 f"- Jika tugas utama sudah terjawab/selesai secara lengkap, berikan jawaban akhir yang jelas dan informatif kepada user sekarang.\n"
-                f"- Jika tugas masih membutuhkan langkah berikutnya atau tool lanjutan (misal melihat isi skill, memanggil MCP, membaca file, delegasi task), panggil tool berikutnya sekarang."
+                f"- Jika tugas masih membutuhkan langkah berikutnya atau tool lanjutan (misal melihat isi skill, memanggil MCP, membaca file, delegasi task), panggil tool berikutnya sekarang.\n"
+                f"- JANGAN panggil tool yang sama dengan argumen yang sama dua kali. Kalau hasilnya sudah ada di riwayat/ledger, pakai hasil itu dan lanjut ke langkah berikutnya."
             )
         else:
             goal_block = f"Tugas sekarang:\n{main_goal}"
@@ -1684,11 +1701,16 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     fixed_len = sum(len(line) for line in prompt_lines) + len(goal_block) + 500
     hist_budget = max(4000, MAX_PROMPT_BUDGET - fixed_len)
 
-    # Budget history turns: keep as many recent turns as fit in hist_budget
+    # Budget history turns: keep as many recent turns as fit in hist_budget.
+    # Previously ultraspeed was capped at a fixed 6 items, which evicted the
+    # large tool observations (skill_view, read_file, terminal) the model needs
+    # to remember it already ran them — so MiMo would re-call the same tool
+    # until Hermes' anti-loop guard aborted the turn. Budget by characters
+    # instead (the real upstream limit) and keep a wider item window.
     if history:
         recent_hist = []
         current_hist_len = 0
-        hist_window = 6 if is_ultraspeed else 16
+        hist_window = 24 if is_ultraspeed else 16
         for item in reversed(history[-hist_window:]):
             item_len = len(item) + 1
             if current_hist_len + item_len <= hist_budget or not recent_hist:
@@ -1698,6 +1720,21 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                 break
         recent_hist.reverse()
         prompt_lines.append("Riwayat percakapan:\n" + "\n".join(recent_hist))
+
+    # Action ledger: a compact, eviction-proof record of every tool already
+    # executed this session. The recent-history window above can drop old turns
+    # under budget pressure; without this the model "forgets" it already called
+    # a tool and repeats it until the framework's anti-loop guard kills the run.
+    if action_ledger:
+        seen = []
+        for _kind, desc in action_ledger:
+            if desc not in seen:
+                seen.append(desc)
+        ledger_lines = [f"- {d}" for d in seen[-40:]]
+        prompt_lines.append(
+            "Tool yang SUDAH kamu jalankan di sesi ini (JANGAN ulangi tanpa alasan baru):\n"
+            + "\n".join(ledger_lines)
+        )
 
     if goal_block:
         prompt_lines.append(goal_block)
@@ -3174,6 +3211,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     except Exception:
         pass
 
+    # Identify this completion up front so every response path (including the
+    # session-title fast path below) can reference the same id without hitting
+    # an UnboundLocalError when the fast path returns before the streaming block.
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created_time = int(time.time())
+
     # Fast path for background session title generation: Hermes CLI fires this in background on turn 1
     if not stream and len(messages) <= 2:
         sys_txt = str(messages[0].get("content", "")) if messages else ""
@@ -3271,9 +3314,6 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
         "multiMedias": multi_medias
     }
 
-    completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-    created_time = int(time.time())
-
     # --- STREAMING PATH ---
     if stream:
         async def sse_generator():
@@ -3294,6 +3334,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _stream_out_text = ""
             _stream_tools_called: List[str] = []
             _initial_chunk_sent = False
+            _saw_reasoning = False  # model emitted <think> content but no answer/tool call yet
             _acct_lock = _cur_acct.get_lock() if (_cur_acct and hasattr(_cur_acct, "get_lock")) else None
             if _acct_lock:
                 await _acct_lock.acquire()
@@ -3512,6 +3553,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
 
                                         if in_thinking:
                                             if thinking_enabled:
+                                                _saw_reasoning = True
                                                 t_chunk = {
                                                     "id": completion_id,
                                                     "object": "chat.completion.chunk",
@@ -3550,6 +3592,23 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 upstream_payload["conversationId"] = new_cid
                                 upstream_payload["msgId"] = uuid.uuid4().hex
                                 await asyncio.sleep(2.5 * (attempt + 1))
+                                continue
+                            # Reasoning-only dead end: the model spent its whole budget
+                            # inside <think> and emitted no answer text and no tool call.
+                            # Retrying is safe here because nothing was yielded to the
+                            # client yet (no accumulated answer chunks). Without this the
+                            # turn ends with an empty message and the downstream agent
+                            # reads a fake "done" fallback, stalling the whole task.
+                            if (not accumulated_chunks and _saw_reasoning and not _content_started
+                                    and attempt < 4 and (tools or not _initial_chunk_sent)):
+                                print(f"[mimoly] Upstream returned reasoning-only (no answer/tool call), retrying attempt {attempt+1}/5...")
+                                accumulated_chunks.clear()
+                                in_thinking = False
+                                _saw_reasoning = False
+                                _first_token_at = None
+                                _bump_retry()
+                                upstream_payload["msgId"] = uuid.uuid4().hex
+                                await asyncio.sleep(1.5 * (attempt + 1))
                                 continue
                             break
                         except Exception as conn_err:
@@ -3646,7 +3705,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     else:
                         # Stream remaining clean text if no tool called
                         if not clean_text:
-                            clean_text = "Langkah telah selesai diproses."
+                            clean_text = _empty_turn_fallback(tools)
                         chunk = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
@@ -3675,7 +3734,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 else:
                     if not _content_started:
                         # Model produced thinking tokens but zero trailing text
-                        fallback_msg = "Langkah telah selesai diproses."
+                        fallback_msg = _empty_turn_fallback(tools)
                         chunk = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
@@ -3946,7 +4005,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
 
     if not openai_tool_calls and not clean_text and not full_reply:
         if reasoning_text:
-            clean_text = "Langkah telah selesai diproses."
+            clean_text = _empty_turn_fallback(tools)
 
     message_payload: Dict[str, Any] = {
         "role": "assistant",
