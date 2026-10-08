@@ -398,9 +398,24 @@ def can_rotate_account() -> bool:
     return pool.healthy_count() >= 1
 
 
+def is_ultraspeed_model(model: str) -> bool:
+    """Single source of truth for 'is this the FastChat (ultraspeed) cluster?'.
+
+    The cluster routing, prompt budget, throttle interval and retry budget all key
+    off this. Duplicating the name list (it once matched only one of the four
+    aliases in the request path) silently gave some ultraspeed requests standard
+    pacing and budget."""
+    return model in (
+        "mimo-v2.6-pro-ultraspeed-studio",
+        "mimo-v2.5-pro-ultraspeed",
+        "mimo-v2.6-pro-ultraspeed",
+        "mimo-ultraspeed",
+    )
+
+
 def get_upstream_endpoints(model: str, ph: str) -> Tuple[str, str]:
     """Resolve upstream chat and conversation save URLs based on model cluster."""
-    is_ultraspeed = (model in ("mimo-v2.6-pro-ultraspeed-studio", "mimo-v2.5-pro-ultraspeed", "mimo-v2.6-pro-ultraspeed", "mimo-ultraspeed"))
+    is_ultraspeed = is_ultraspeed_model(model)
     prefix = "https://aistudio.xiaomimimo.com/fastchat" if is_ultraspeed else "https://aistudio.xiaomimimo.com"
     quoted_ph = urllib.parse.quote(ph)
     chat_url = f"{prefix}/open-apis/bot/chat?xiaomichatbot_ph={quoted_ph}"
@@ -3319,7 +3334,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     if tools or len(messages) > 1:
         agent_framework = detect_agent_framework(request, body)
         print(f"[mimoly] agent_framework={agent_framework} (profile: {AGENT_PROFILES[agent_framework]['label']})")
-        is_ultra = (target_upstream_model == "mimo-v2.5-pro-ultraspeed")
+        is_ultra = (is_ultraspeed_model(target_upstream_model))
         user_prompt = build_agent_prompt(messages, tools, framework=agent_framework, is_ultraspeed=is_ultra)
     else:
         user_prompt = ""
@@ -3410,7 +3425,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     # a 50s retry deadline gives up just before the limiter clears.
                     # Give ultraspeed a longer, wider retry budget so a transient 429
                     # resolves instead of failing the turn.
-                    if target_upstream_model == "mimo-v2.5-pro-ultraspeed":
+                    if is_ultraspeed_model(target_upstream_model):
                         _max_attempts, _deadline, _max_delay = 8, 200.0, 30.0
                     else:
                         _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
@@ -3428,7 +3443,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 # stricter pacing budget than the standard cluster;
                                 # 2s bursts trip its 429 limiter. Space ultraspeed
                                 # calls further apart so retries don't self-throttle.
-                                _min_interval = 5.0 if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.0
+                                _min_interval = 5.0 if is_ultraspeed_model(target_upstream_model) else 2.0
                                 await _cur_acct.wait_throttle(min_interval=_min_interval)
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
@@ -3663,7 +3678,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                 yield f"data: {json.dumps(chunk)}\n\n"
                                                 _content_started = True
                                                 accumulated_chunks.append(clean_piece)
-                            _busy_max = _max_attempts if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 4
+                            _busy_max = _max_attempts if is_ultraspeed_model(target_upstream_model) else 4
                             if (_upstream_was_busy or is_upstream_busy("".join(accumulated_chunks))) and attempt < _busy_max:
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/{_busy_max}...")
                                 accumulated_chunks.clear()
@@ -3685,7 +3700,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 # "服务器繁忙" means the upstream cluster is overloaded, not
                                 # that we are being rate-limited — so wait longer between tries
                                 # instead of hammering a saturated backend.
-                                _busy_sleep = 6.0 * (attempt + 1) if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.5 * (attempt + 1)
+                                _busy_sleep = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
                                 await asyncio.sleep(_busy_sleep)
                                 continue
                             # Empty / reasoning-only dead end: upstream yielded no
@@ -3949,7 +3964,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     if _acct_lock:
         await _acct_lock.acquire()
     try:
-        if target_upstream_model == "mimo-v2.5-pro-ultraspeed":
+        if is_ultraspeed_model(target_upstream_model):
             _max_attempts, _deadline, _max_delay = 8, 200.0, 30.0
         else:
             _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
@@ -3959,7 +3974,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
                 if _acct and hasattr(_acct, "wait_throttle"):
-                    _min_interval = 5.0 if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.0
+                    _min_interval = 5.0 if is_ultraspeed_model(target_upstream_model) else 2.0
                     await _acct.wait_throttle(min_interval=_min_interval)
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
@@ -4040,7 +4055,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
 
-                _busy_max_ns = _max_attempts if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 4
+                _busy_max_ns = _max_attempts if is_ultraspeed_model(target_upstream_model) else 4
                 if is_upstream_busy("".join(accumulated_chunks)) and attempt < _busy_max_ns:
                     print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/{_busy_max_ns}...")
                     accumulated_chunks.clear()
@@ -4048,7 +4063,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     new_cid = await ensure_new_conversation(save_url, headers, cookies, target_upstream_model)
                     upstream_payload["conversationId"] = new_cid
                     upstream_payload["msgId"] = uuid.uuid4().hex
-                    _busy_sleep_ns = 6.0 * (attempt + 1) if target_upstream_model == "mimo-v2.5-pro-ultraspeed" else 2.5 * (attempt + 1)
+                    _busy_sleep_ns = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
                     await asyncio.sleep(_busy_sleep_ns)
                     continue
                 break
