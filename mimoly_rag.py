@@ -462,6 +462,20 @@ def _get_tool_function_dict(tool: Any) -> Dict[str, Any]:
     return tool
 
 
+def _format_xml_param_value(val: Any) -> str:
+    """Format dummy parameter values for XML few-shot examples.
+
+    Strings are kept verbatim (e.g. 'path/to/file').
+    Booleans, numbers, lists, dicts are formatted with json.dumps (e.g. 'true', '1', '["item"]').
+    """
+    if isinstance(val, str):
+        return val
+    try:
+        return json.dumps(val)
+    except (TypeError, ValueError):
+        return str(val)
+
+
 def _generate_few_shot_example(
     name: str,
     props: Dict[str, Any],
@@ -485,10 +499,19 @@ def _generate_few_shot_example(
         if not isinstance(spec, dict):
             spec = {}
 
+        ptype = spec.get("type", "string") if isinstance(spec, dict) else "string"
         if "default" in spec:
             val = spec["default"]
         elif "enum" in spec and isinstance(spec["enum"], list) and spec["enum"]:
             val = spec["enum"][0]
+        elif ptype in ("boolean", "bool"):
+            val = True
+        elif ptype in ("integer", "number"):
+            val = 1
+        elif ptype == "array":
+            val = ["item"]
+        elif ptype == "object":
+            val = {"key": "value"}
         elif name == "execute_code" and p_str == "code":
             val = 'print("hello")'
         elif name in ("write_file", "patch", "read_file") and p_str == "path":
@@ -514,17 +537,7 @@ def _generate_few_shot_example(
         elif "id" in p_str.lower():
             val = "id_123"
         else:
-            ptype = spec.get("type", "string")
-            if ptype in ("integer", "number"):
-                val = 1
-            elif ptype == "boolean":
-                val = True
-            elif ptype == "array":
-                val = ["item"]
-            elif ptype == "object":
-                val = {"key": "value"}
-            else:
-                val = "value"
+            val = "value"
         dummy_args.append((p_str, val))
 
     fw = (framework or "default").lower().strip()
@@ -548,7 +561,7 @@ def _generate_few_shot_example(
     else:
         # Default / Hermes / Pi / OpenCode / Qwen XML style
         if dummy_args:
-            xml_params = "".join(f"<parameter={k}>{v}</parameter>" for k, v in dummy_args)
+            xml_params = "".join(f"<parameter={k}>{_format_xml_param_value(v)}</parameter>" for k, v in dummy_args)
             return f"<tool_call><function={name}>{xml_params}</function></tool_call>"
         else:
             return f"<tool_call><function={name}></function></tool_call>"
@@ -558,12 +571,16 @@ def _render_tool_entry(
     tool: Dict[str, Any],
     framework: str,
     param_desc_limit: Optional[int] = None,
+    tool_desc_limit: Optional[int] = None,
 ) -> str:
     """Render a single tool's schema, types, parameters, and few-shot example."""
     name = _extract_tool_name(tool)
     if not name:
         return ""
     desc = " ".join(_extract_tool_desc(tool).strip().split())
+    effective_tool_limit = tool_desc_limit if tool_desc_limit is not None else param_desc_limit
+    if effective_tool_limit is not None and len(desc) > effective_tool_limit:
+        desc = desc[:effective_tool_limit]
 
     fn = _get_tool_function_dict(tool)
     params = fn.get("parameters") if isinstance(fn, dict) else None
@@ -626,34 +643,49 @@ def _render_catalogue(
     tools_list: List[Dict[str, Any]],
     framework: str,
     param_desc_limit: Optional[int] = None,
+    tool_desc_limit: Optional[int] = None,
 ) -> str:
     """Render list of tools separated by newlines."""
     entries = []
     for t in tools_list:
-        entry = _render_tool_entry(t, framework, param_desc_limit=param_desc_limit)
+        entry = _render_tool_entry(
+            t,
+            framework,
+            param_desc_limit=param_desc_limit,
+            tool_desc_limit=tool_desc_limit,
+        )
         if entry:
             entries.append(entry)
     return "\n\n".join(entries)
 
 
 def render_adaptive_tool_catalogue(
-    tools: List[Dict[str, Any]],
-    budget_chars: int = 4000,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    budget_chars: Optional[int] = 4000,
     framework: str = "default",
     anchor_tools: Optional[Set[str]] = None,
+    selected_tools: Optional[List[Dict[str, Any]]] = None,
+    **kwargs: Any,
 ) -> str:
     """Render an adaptive full-schema tool catalogue with few-shot examples and budget pruning.
 
     Budget Pruning Policy:
-      1. If total formatted length > budget_chars, truncate parameter descriptions to 80 chars
-         while strictly preserving property names, types, and required lists.
+      1. If total formatted length > budget_chars, truncate tool and parameter descriptions
+         to 80 chars while strictly preserving property names, types, and required lists.
       2. If still over budget, dynamically throttle dynamic tools (while unconditionally
          preserving anchor tools) until the total schema fits under budget_chars.
     """
-    if not tools:
+    active_tools = tools if tools is not None else (selected_tools if selected_tools is not None else kwargs.get("selected_tools"))
+    if not active_tools:
         return ""
 
-    budget_chars = int(budget_chars)
+    if budget_chars is None:
+        budget_chars = 4000
+    try:
+        budget_chars = int(budget_chars)
+    except (ValueError, TypeError):
+        budget_chars = 4000
+
     if budget_chars <= 0:
         return ""
 
@@ -662,7 +694,7 @@ def render_adaptive_tool_catalogue(
     else:
         anchors = frozenset(DEFAULT_ANCHOR_TOOLS)
 
-    valid_tools = [t for t in tools if isinstance(t, dict) and _extract_tool_name(t)]
+    valid_tools = [t for t in active_tools if isinstance(t, dict) and _extract_tool_name(t)]
     if not valid_tools:
         return ""
 
@@ -671,7 +703,7 @@ def render_adaptive_tool_catalogue(
     if len(rendered) <= budget_chars:
         return rendered
 
-    # Phase 1: Truncate parameter descriptions to 80 chars
+    # Phase 1: Truncate tool & parameter descriptions to 80 chars
     rendered = _render_catalogue(valid_tools, framework, param_desc_limit=80)
     if len(rendered) <= budget_chars:
         return rendered
@@ -697,7 +729,7 @@ def render_adaptive_tool_catalogue(
             return rendered
 
     # If still over budget and only anchors remain:
-    # Unconditionally preserve anchors, try stricter parameter description truncation
+    # Unconditionally preserve anchors, try stricter description truncation
     if len(rendered) > budget_chars:
         for limit in (40, 20, 0):
             rendered = _render_catalogue(current_tools, framework, param_desc_limit=limit)

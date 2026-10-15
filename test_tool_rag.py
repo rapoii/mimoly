@@ -344,6 +344,72 @@ def test_budget_pruning_description_truncation():
     assert "string" in rendered_pruned
 
 
+def test_budget_pruning_tool_description_truncation():
+    """Verify that tool top-level description is truncated to 80 chars under budget pressure."""
+    long_tool_desc = "This is an extremely verbose tool description detailing comprehensive edge cases and options that extends well beyond eighty characters."
+    tools = [
+        {
+            "function": {
+                "name": "deep_inspect",
+                "description": long_tool_desc,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Target name"},
+                    },
+                    "required": ["target"],
+                },
+            }
+        }
+    ]
+    # Full budget -> full description is present
+    rendered_full = render_adaptive_tool_catalogue(tools, budget_chars=5000)
+    assert long_tool_desc in rendered_full
+
+    # Under budget pressure (Phase 1) -> top-level tool description is truncated to 80 chars
+    target_budget = len(rendered_full) - 30
+    rendered_pruned = render_adaptive_tool_catalogue(tools, budget_chars=target_budget)
+    assert len(rendered_pruned) <= target_budget
+    assert long_tool_desc not in rendered_pruned
+    assert long_tool_desc[:80] in rendered_pruned
+    assert "deep_inspect" in rendered_pruned
+    assert "target" in rendered_pruned
+
+
+def test_render_adaptive_catalogue_flexibility_and_json_literals():
+    """Verify budget_chars=None fallback, selected_tools keyword argument, and XML json.dumps literals."""
+    tools = [
+        {
+            "function": {
+                "name": "custom_filter",
+                "description": "Filter data records",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "is_active": {"type": "boolean", "description": "Active status"},
+                        "limit": {"type": "integer", "description": "Maximum count"},
+                    },
+                    "required": ["is_active", "limit"],
+                },
+            }
+        }
+    ]
+
+    # Test selected_tools keyword argument
+    rendered_kw = render_adaptive_tool_catalogue(selected_tools=tools)
+    assert "custom_filter" in rendered_kw
+
+    # Test budget_chars=None defaults to 4000
+    rendered_none = render_adaptive_tool_catalogue(tools, budget_chars=None)
+    assert "custom_filter" in rendered_none
+    assert len(rendered_none) <= 4000
+
+    # Test XML formatting of non-string dummy arguments with json.dumps
+    # Boolean must format as lowercase "true", integer as "1"
+    assert "<parameter=is_active>true</parameter>" in rendered_kw
+    assert "<parameter=limit>1</parameter>" in rendered_kw
+
+
 def test_budget_pruning_dynamic_throttling_preserves_anchors():
     anchor_names = ["terminal", "read_file", "write_file", "patch", "search_files"]
     tools = []
@@ -465,6 +531,8 @@ if __name__ == "__main__":
         test_render_adaptive_tool_catalogue_full_schema,
         test_render_adaptive_tool_catalogue_frameworks,
         test_budget_pruning_description_truncation,
+        test_budget_pruning_tool_description_truncation,
+        test_render_adaptive_catalogue_flexibility_and_json_literals,
         test_budget_pruning_dynamic_throttling_preserves_anchors,
         test_render_adaptive_catalogue_edge_cases,
         test_render_latency_benchmark,
