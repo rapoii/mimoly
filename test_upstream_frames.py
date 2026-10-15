@@ -921,6 +921,145 @@ def main():
     except Exception as e:
         check("helper module importable", False, repr(e))
 
+    # ------------------------------------------------------------------
+    # [unit] Task 4: Self-Healing Parser & Argument Recovery Updates
+    # ------------------------------------------------------------------
+    print("[unit] self-healing parser & argument recovery (Task 4)")
+
+    # 1. _recover_empty_write_file helper and A11 markdown harvest
+    check("has _recover_empty_write_file helper", hasattr(m, "_recover_empty_write_file"))
+    if hasattr(m, "_recover_empty_write_file"):
+        sample_calls = [{"name": "write_file", "arguments": {"path": "calc.py"}}]
+        m._recover_empty_write_file(sample_calls, "Here is calc.py:\n```python\ndef add(a, b):\n    return a + b\n```")
+        check(
+            "_recover_empty_write_file populates content from markdown",
+            sample_calls[0]["arguments"].get("content") == "def add(a, b):\n    return a + b",
+            f"got {sample_calls}",
+        )
+
+        sample_top_props = [{"name": "write_file", "arguments": {"path": "config.json", "env": "prod", "debug": False}}]
+        m._recover_empty_write_file(sample_top_props, "Writing config")
+        check(
+            "_recover_empty_write_file handles top-level properties",
+            '"env": "prod"' in sample_top_props[0]["arguments"].get("content", ""),
+            f"got {sample_top_props}",
+        )
+
+    wf_missing_reply = (
+        "I will create the test suite in test_example.py:\n"
+        "```python\n"
+        "def test_example():\n"
+        "    assert 1 + 1 == 2\n"
+        "```\n"
+        "<tool_call>\n"
+        '{"name": "write_file", "arguments": {"path": "test_example.py"}}\n'
+        "</tool_call>"
+    )
+    calls_wf, _ = m.smart_extract_tool_calls(wf_missing_reply, "", mock_tools)
+    check(
+        "write_file missing content -> recovered from markdown code block",
+        len(calls_wf) == 1
+        and calls_wf[0]["name"] == "write_file"
+        and "def test_example():" in calls_wf[0]["arguments"].get("content", ""),
+        f"got {calls_wf}",
+    )
+
+    # 2. execute_code with empty {} -> recovered from reasoning/markdown python block
+    exec_empty_dict_reply = (
+        "<think>\n"
+        "Let's test this in Python:\n"
+        "```python\n"
+        "import math\n"
+        "print(math.sqrt(144))\n"
+        "```\n"
+        "</think>\n"
+        "<tool_call>\n"
+        '{"name": "execute_code", "arguments": {}}\n'
+        "</tool_call>"
+    )
+    calls_exec_empty, _ = m.smart_extract_tool_calls(exec_empty_dict_reply, "", mock_tools)
+    check(
+        "execute_code with empty {} -> recovered from reasoning python block",
+        len(calls_exec_empty) == 1
+        and calls_exec_empty[0]["name"] == "execute_code"
+        and "print(math.sqrt(144))" in calls_exec_empty[0]["arguments"].get("code", ""),
+        f"got {calls_exec_empty}",
+    )
+
+    # XML glitches & unescaped quotes inside XML parameter tags
+    glitch_reply = (
+        "<tool_call>\n"
+        "<invoke name=write_file>\n"
+        "<parameter name=path>hello.txt<parameter name=\"content\">He said \"Hello World\" and left.</parameter>\n"
+        "</invoke>\n"
+        "</tool_call>"
+    )
+    calls_glitch, _ = m.smart_extract_tool_calls(glitch_reply, "", mock_tools)
+    check(
+        "xml with unescaped quotes and glitchy tags parsed without crash",
+        len(calls_glitch) == 1
+        and calls_glitch[0]["name"] == "write_file"
+        and calls_glitch[0]["arguments"].get("path") == "hello.txt"
+        and 'He said "Hello World"' in calls_glitch[0]["arguments"].get("content", ""),
+        f"got {calls_glitch}",
+    )
+
+    # 3. Dual-index validation in smart_extract_tool_calls: unselected tool validates cleanly
+    unselected_tool_schema = {
+        "type": "function",
+        "function": {
+            "name": "custom_mcp_unselected_tool",
+            "description": "An unselected tool not present in the prompt working set",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_url": {"type": "string"},
+                    "timeout_seconds": {"type": "integer"}
+                },
+                "required": ["target_url"]
+            }
+        }
+    }
+    full_catalogue = mock_tools + [unselected_tool_schema]
+    # Reply invokes the unselected tool with timeout_seconds passed as string "30" (needing coercion)
+    reply_unselected = (
+        "<tool_call>\n"
+        '{"name": "custom_mcp_unselected_tool", "arguments": {"target_url": "https://internal.net/api", "timeout_seconds": "30"}}\n'
+        "</tool_call>"
+    )
+    calls_unselected, _ = m.smart_extract_tool_calls(reply_unselected, "", available_tools=full_catalogue)
+    check(
+        "tool invocation for an unselected tool (present in full available_tools) extracted",
+        len(calls_unselected) == 1 and calls_unselected[0]["name"] == "custom_mcp_unselected_tool",
+        f"got {calls_unselected}",
+    )
+    if calls_unselected:
+        check(
+            "unselected tool arguments coerced against catalogue schema",
+            calls_unselected[0]["arguments"].get("timeout_seconds") == 30,
+            f"got {calls_unselected[0]['arguments']}",
+        )
+        val = m.validate_tool_args("custom_mcp_unselected_tool", calls_unselected[0]["arguments"], available_tools=full_catalogue)
+        check(
+            "unselected tool validates cleanly with zero schema issues",
+            val.get("valid") is True and len(val.get("issues", [])) == 0,
+            f"got issues {val.get('issues')}",
+        )
+
+    # Dual-index dictionary format: {"working_set": [...], "all_tools": [...]}
+    dual_catalogue = {
+        "working_set": mock_tools[:2],
+        "all_tools": full_catalogue
+    }
+    calls_dual, _ = m.smart_extract_tool_calls(reply_unselected, "", available_tools=dual_catalogue)
+    check(
+        "dual-index dictionary catalogue validates unselected tool cleanly",
+        len(calls_dual) == 1
+        and calls_dual[0]["name"] == "custom_mcp_unselected_tool"
+        and calls_dual[0]["arguments"].get("timeout_seconds") == 30,
+        f"got {calls_dual}",
+    )
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

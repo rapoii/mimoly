@@ -1844,15 +1844,69 @@ def _coerce_to_list(val: Any) -> List[Any]:
     return [val]
 
 
-def _schema_for(name: str, available_tools: Optional[List[Dict[str, Any]]]) -> Optional[dict]:
-    """Return the declared parameter schema for a tool, or None."""
+def _normalize_tools_list(available_tools: Optional[Any]) -> List[Dict[str, Any]]:
+    """Flatten available_tools whether provided as a list or a dual-index dict."""
     if not available_tools:
+        return []
+    if isinstance(available_tools, list):
+        return [t for t in available_tools if isinstance(t, dict)]
+    if isinstance(available_tools, dict):
+        merged = []
+        for k in ("all_tools", "catalogue", "tools", "working_set", "global_tools"):
+            v = available_tools.get(k)
+            if isinstance(v, list):
+                merged.extend([t for t in v if isinstance(t, dict)])
+        if merged:
+            return merged
+        res = []
+        for k, v in available_tools.items():
+            if isinstance(v, dict):
+                if "parameters" in v or "input_schema" in v or "function" in v:
+                    res.append(dict(v, name=v.get("name") or k))
+                else:
+                    res.append({"name": k, "parameters": v})
+        return res
+    return []
+
+
+def _build_tool_index(available_tools: Optional[Any]) -> Dict[str, dict]:
+    """Build a unified tool index: tool_name -> schema dict from full catalogue and/or working set."""
+    if not available_tools:
+        return {}
+    tools_list = _normalize_tools_list(available_tools)
+    index = {}
+    for t in tools_list:
+        if not isinstance(t, dict):
+            continue
+        fn = t.get("function") if isinstance(t.get("function"), dict) else {}
+        name = fn.get("name") or t.get("name")
+        if not name or not isinstance(name, str):
+            continue
+        schema = fn.get("parameters") or t.get("parameters") or t.get("input_schema") or fn.get("input_schema") or {}
+        if isinstance(schema, dict):
+            index[name] = schema
+            if "__" in name:
+                short = name.split("__")[-1]
+                if short not in index:
+                    index[short] = schema
+    return index
+
+
+def _schema_for(name: str, available_tools: Optional[Any]) -> Optional[dict]:
+    """Return the declared parameter schema for a tool, or None."""
+    if not available_tools or not name:
         return None
-    for t in available_tools:
-        fn = t.get("function") or {}
-        if fn.get("name") == name:
-            schema = fn.get("parameters") or {}
-            return schema if isinstance(schema, dict) else None
+    index = _build_tool_index(available_tools)
+    if name in index:
+        return index[name]
+    name_lower = name.lower()
+    for k, v in index.items():
+        if k.lower() == name_lower:
+            return v
+    if "__" in name:
+        short = name.split("__")[-1]
+        if short in index:
+            return index[short]
     return None
 
 
@@ -2154,25 +2208,169 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
     return args
 
 
+def _recover_empty_write_file(calls: List[Dict[str, Any]], reply_text: str,
+                              available_tools: Optional[Any] = None) -> None:
+    """Recover missing/empty 'content' in write_file from top-level properties or markdown blocks (A11)."""
+    if not calls or not reply_text:
+        return
+
+    # Strip tool_call and function/invoke tags so we only look at prose/reasoning markdown blocks
+    clean_reply = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text)
+    clean_reply = re.sub(r"<(?:function|invoke)[\s\S]*?(?:</(?:function|invoke)>|$)", "", clean_reply)
+
+    block_matches = list(re.finditer(r"```([a-zA-Z0-9_\-\.]+)?\r?\n([\s\S]*?)(?:\r?\n```|```|$)", clean_reply))
+    candidates = []
+    for bm in block_matches:
+        lang = (bm.group(1) or "").lower().strip()
+        code = bm.group(2)
+        # Skip json blocks that are tool calls
+        if lang == "json" or not lang:
+            s = code.strip()
+            if s.startswith("{") and ('"tool_calls"' in s or '"function"' in s or '"name"' in s):
+                continue
+        candidates.append((lang, code, bm.start()))
+
+    EXT_LANGS = {
+        "py": {"python", "py", "python3"},
+        "js": {"javascript", "js", "mjs", "cjs"},
+        "ts": {"typescript", "ts", "tsx"},
+        "jsx": {"jsx", "javascript", "js"},
+        "tsx": {"tsx", "typescript", "ts"},
+        "json": {"json"},
+        "html": {"html", "htm"},
+        "css": {"css", "scss", "sass"},
+        "md": {"markdown", "md"},
+        "sh": {"bash", "sh", "shell", "zsh"},
+        "bat": {"bat", "cmd", "batch"},
+        "yaml": {"yaml", "yml"},
+        "yml": {"yaml", "yml"},
+        "sql": {"sql"},
+        "rs": {"rust", "rs"},
+        "go": {"go"},
+        "c": {"c", "h"},
+        "cpp": {"cpp", "c++", "cc", "hpp", "h"},
+    }
+
+    for tc in calls:
+        if tc.get("name") in ("write_file", "write"):
+            args = tc.setdefault("arguments", {})
+            if not isinstance(args, dict):
+                continue
+
+            # 1. Recover from top-level properties (A11)
+            if not args.get("content"):
+                path_keys = {"path", "file", "filename", "filepath", "target", "path_to_file", "file_path", "target_file", "path_name"}
+                other_keys = {k: v for k, v in args.items() if k not in path_keys}
+                if other_keys:
+                    content_aliases = ("text", "body", "data", "file_content", "contents", "code_to_write", "source_code", "code")
+                    for ca in content_aliases:
+                        if ca in other_keys:
+                            args["content"] = str(other_keys[ca])
+                            args.pop(ca, None)
+                            break
+                    if not args.get("content"):
+                        args["content"] = json.dumps(other_keys, indent=2)
+                        for k in list(other_keys.keys()):
+                            args.pop(k, None)
+
+            # 2. Recover from markdown code blocks in reply_text
+            if not args.get("content") and candidates:
+                target_path = args.get("path", "")
+                target_base = os.path.basename(target_path).lower() if target_path else ""
+                target_ext = os.path.splitext(target_path)[1].lower().lstrip(".") if target_path else ""
+                target_langs = EXT_LANGS.get(target_ext, {target_ext} if target_ext else set())
+
+                best_code = None
+                best_score = -1
+
+                for idx, (lang, code, pos) in enumerate(candidates):
+                    score = 0
+                    first_line = code.strip().split("\n")[0] if code.strip() else ""
+                    if target_base and target_base in first_line.lower():
+                        score += 10
+                    prec_text = clean_reply[max(0, pos - 200):pos].lower()
+                    if target_base and target_base in prec_text:
+                        score += 5
+                    if lang and lang in target_langs:
+                        score += 3
+                    score += idx * 0.1
+
+                    if score > best_score:
+                        best_score = score
+                        best_code = code
+
+                if best_code is not None:
+                    args["content"] = best_code.rstrip("\r\n")
+
+            if available_tools and args.get("content"):
+                coerce_tool_args("write_file", args, available_tools)
+
+
 def _recover_empty_execute_code(calls: List[Dict[str, Any]], reply_text: str) -> None:
     """Recover missing/empty 'code' argument in execute_code from surrounding markdown python blocks (A12)."""
+    if not calls or not reply_text:
+        return
+    clean_reply = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text)
+    clean_reply = re.sub(r"<(?:function|invoke)[\s\S]*?(?:</(?:function|invoke)>|$)", "", clean_reply)
+
+    m_py = re.findall(r"```(?:python|python3|py)\r?\n([\s\S]*?)(?:\r?\n```|```|$)", clean_reply)
+    if not m_py:
+        all_blocks = re.findall(r"```[a-zA-Z0-9_\-\.]*?\r?\n([\s\S]*?)(?:\r?\n```|```|$)", clean_reply)
+        m_py = [b for b in all_blocks if not (b.strip().startswith("{") and ("tool_calls" in b or '"name"' in b))]
+
+    if not m_py:
+        m_think = re.search(r"<think>([\s\S]*?)(?:</think>|$)", reply_text)
+        if m_think:
+            think_text = m_think.group(1)
+            code_lines = [line for line in think_text.splitlines() if line.strip().startswith(("import ", "from ", "def ", "print("))]
+            if code_lines:
+                m_py = ["\n".join(code_lines)]
+
     for tc in calls:
         if tc.get("name") == "execute_code":
             args = tc.setdefault("arguments", {})
+            if not isinstance(args, dict):
+                continue
             if not args.get("code"):
-                m_py = re.findall(r"```(?:python|py)\n([\s\S]*?)\n```", reply_text)
-                if m_py:
-                    args["code"] = m_py[-1].strip()
+                for ca in ("script", "python", "command", "cmd", "code_snippet", "input", "py", "source"):
+                    if ca in args and args[ca]:
+                        args["code"] = str(args.pop(ca))
+                        break
+            if not args.get("code") and m_py:
+                args["code"] = m_py[-1].strip()
 
 
-def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[List[Dict[str, Any]]] = None):
+def _finalize_tool_calls(calls: List[Dict[str, Any]], reply_text: str, user_prompt: str,
+                         available_tools: Optional[Any], tool_names: List[str]) -> List[Dict[str, Any]]:
+    """Heal missing arguments (A11/A12), normalize arguments, and coerce types against catalogue."""
+    if not calls:
+        return calls
+    # 1. Recover write_file content from top-level properties or markdown
+    _recover_empty_write_file(calls, reply_text, available_tools)
+    # 2. Recover execute_code code from reasoning/markdown
+    _recover_empty_execute_code(calls, reply_text)
+    # 3. Normalize arguments and validate schemas
+    for tc in calls:
+        nm = tc.get("name")
+        args = tc.get("arguments") or {}
+        if isinstance(args, str):
+            args = safe_json_loads(args, default={})
+        if nm in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
+            nm = "terminal"
+            tc["name"] = nm
+        tc["arguments"] = normalize_tool_args(nm, args, user_prompt, available_tools)
+    return calls
+
+
+def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[Any] = None):
     """Detect explicit JSON tool_calls or extract code blocks mapped to write/shell tools."""
-    tool_names = [t.get("function", {}).get("name") for t in available_tools] if available_tools else []
+    tool_index = _build_tool_index(available_tools)
+    tool_names = list(tool_index.keys())
 
     # 1. Cek explicit JSON or XML tool_calls
     # Pola 1A: XML-style <function=name> / <invoke name="name"> / <function name="name">
     xml_matches = re.findall(
-        r"<(?:function|invoke)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)(?:</(?:function|invoke)>|$)",
+        r"<(?:function|invoke)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-\.:]+)[\"']?[^>]*>([\s\S]*?)(?:</(?:function|invoke)>|$)",
         reply_text,
     )
     if xml_matches:
@@ -2180,36 +2378,47 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
         for fn_name, params_str in xml_matches:
             params = {}
             clean_p = params_str.strip()
-            idx = clean_p.find("{")
-            if idx != -1:
-                try:
-                    obj, _ = json.JSONDecoder().raw_decode(clean_p, idx)
-                    if isinstance(obj, dict):
-                        params = obj
-                except Exception:
-                    pass
+            has_param_tags = bool(re.search(r"<(?:parameter|param)", clean_p, re.IGNORECASE))
+            if not has_param_tags:
+                idx = clean_p.find("{")
+                if idx != -1:
+                    try:
+                        obj, _ = json.JSONDecoder().raw_decode(clean_p, idx)
+                        if isinstance(obj, dict):
+                            params = obj
+                    except Exception:
+                        pass
             if not params:
                 param_matches = re.findall(
-                    r"<(?:parameter|param)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-]+)[\"']?>([\s\S]*?)(?:</(?:parameter|param)>|$)",
+                    r"<(?:parameter|param)(?:=|\s+name=)[\"']?([a-zA-Z0-9_\-\.:]+)[\"']?[^>]*>([\s\S]*?)(?:</(?:parameter|param)(?::[a-zA-Z0-9_\-\.]+)?>|(?=<(?:parameter|param))|(?=</(?:function|invoke))|$)",
                     params_str,
                 )
                 for p_name, p_val in param_matches:
                     p_val = p_val.strip()
-                    if p_val.isdigit():
-                        params[p_name] = int(p_val)
+                    if p_val.startswith("<![CDATA[") and p_val.endswith("]]>"):
+                        p_val = p_val[9:-3].strip()
+                    if (p_val.startswith('"') and p_val.endswith('"') and len(p_val) >= 2 and '\n' not in p_val) or \
+                       (p_val.startswith("'") and p_val.endswith("'") and len(p_val) >= 2 and '\n' not in p_val):
+                        try:
+                            p_val = json.loads(p_val)
+                        except Exception:
+                            p_val = p_val[1:-1]
+                    elif p_val.isdigit():
+                        p_val = int(p_val)
                     elif p_val.lower() == "true":
-                        params[p_name] = True
+                        p_val = True
                     elif p_val.lower() == "false":
-                        params[p_name] = False
-                    else:
-                        params[p_name] = p_val
+                        p_val = False
+                    elif p_val.startswith("{") or p_val.startswith("["):
+                        try:
+                            p_val = safe_json_loads(p_val, default=p_val)
+                        except Exception:
+                            pass
+                    params[p_name] = p_val
 
-            params = normalize_tool_args(fn_name, params, user_prompt, available_tools)
-            if fn_name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                fn_name = "terminal"
             tc_list.append({"name": fn_name, "arguments": params})
         if tc_list:
-            _recover_empty_execute_code(tc_list, reply_text)
+            _finalize_tool_calls(tc_list, reply_text, user_prompt, available_tools, tool_names)
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = re.sub(r"<(?:function|invoke)[\s\S]*?</(?:function|invoke)>", "", clean).strip()
             clean = clean.replace("</think>", "").strip()
@@ -2231,32 +2440,24 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                         if "tool_calls" in item and isinstance(item["tool_calls"], list):
                             for tc in item["tool_calls"]:
                                 name = tc.get("name")
-                                args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt, available_tools)
-                                if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                                    name = "terminal"
+                                args = tc.get("arguments") or tc.get("parameters") or {}
                                 tc_list.append({"name": name, "arguments": args})
                         elif "name" in item:
                             name = item["name"]
-                            args = normalize_tool_args(name, item.get("arguments") or item.get("parameters") or {}, user_prompt, available_tools)
-                            if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                                name = "terminal"
+                            args = item.get("arguments") or item.get("parameters") or {}
                             tc_list.append({"name": name, "arguments": args})
             elif isinstance(tc_obj, dict):
                 if "tool_calls" in tc_obj and isinstance(tc_obj["tool_calls"], list):
                     for tc in tc_obj["tool_calls"]:
                         name = tc.get("name")
-                        args = normalize_tool_args(name, tc.get("arguments") or tc.get("parameters") or {}, user_prompt, available_tools)
-                        if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                            name = "terminal"
+                        args = tc.get("arguments") or tc.get("parameters") or {}
                         tc_list.append({"name": name, "arguments": args})
                 elif "name" in tc_obj:
                     name = tc_obj["name"]
-                    args = normalize_tool_args(name, tc_obj.get("arguments") or tc_obj.get("parameters") or {}, user_prompt, available_tools)
-                    if name in ["RunCommand", "run_command", "bash", "shell"] and "terminal" in tool_names:
-                        name = "terminal"
+                    args = tc_obj.get("arguments") or tc_obj.get("parameters") or {}
                     tc_list.append({"name": name, "arguments": args})
         if tc_list:
-            _recover_empty_execute_code(tc_list, reply_text)
+            _finalize_tool_calls(tc_list, reply_text, user_prompt, available_tools, tool_names)
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = clean.replace("</think>", "").strip()
             return tc_list, clean
@@ -2271,14 +2472,15 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                 for tc in d["tool_calls"]:
                     nm = tc.get("name") or (tc.get("function") or {}).get("name")
                     ar = tc.get("arguments") or tc.get("parameters") or (tc.get("function") or {}).get("arguments") or {}
-                    if isinstance(ar, str):
-                        ar = safe_json_loads(ar, default={})
-                    calls.append({"name": nm, "arguments": normalize_tool_args(nm, ar, user_prompt, available_tools)})
+                    calls.append({"name": nm, "arguments": ar})
+                _finalize_tool_calls(calls, reply_text, user_prompt, available_tools, tool_names)
                 return calls, clean
             elif "name" in d and ("parameters" in d or "arguments" in d):
                 args = d.get("parameters") or d.get("arguments") or {}
                 clean = reply_text.replace(m_json.group(0), "").strip()
-                return [{"name": d["name"], "arguments": normalize_tool_args(d["name"], args, user_prompt, available_tools)}], clean
+                calls = [{"name": d["name"], "arguments": args}]
+                _finalize_tool_calls(calls, reply_text, user_prompt, available_tools, tool_names)
+                return calls, clean
         except Exception:
             pass
 
@@ -2290,11 +2492,9 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
             for item in arr:
                 if "name" in item:
                     args = item.get("arguments") or item.get("parameters") or {}
-                    if isinstance(args, str):
-                        args = safe_json_loads(args, default={})
-                    calls.append({"name": item.get("name"),
-                                  "arguments": normalize_tool_args(item.get("name"), args, user_prompt, available_tools)})
+                    calls.append({"name": item.get("name"), "arguments": args})
             if calls:
+                _finalize_tool_calls(calls, reply_text, user_prompt, available_tools, tool_names)
                 clean = reply_text.replace(m2.group(0), "").strip()
                 return calls, clean
         except Exception:
