@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,16 @@ import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Force IPv4 (AF_INET) to prevent Windows IPv6 DNS getaddrinfo [Errno 11001] stalls on upstream requests
+_orig_getaddrinfo = socket.getaddrinfo
+
+def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if family == 0 or family == socket.AF_UNSPEC:
+        family = socket.AF_INET
+    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+
+socket.getaddrinfo = _ipv4_getaddrinfo
 
 try:
     from fastapi import FastAPI, Request, Response, UploadFile, File, Form
