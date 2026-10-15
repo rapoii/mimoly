@@ -269,7 +269,7 @@ BASE_DIR = Path(__file__).parent.resolve()
 SESSION_FILE = Path(os.environ.get("MIMOLY_SESSION_FILE", BASE_DIR / "session.json")).resolve()
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8080
-CHAT_API_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/chat"
+CHAT_API_URL = "https://aistudio.xiaomimimo.com/open-apis/react/chat"
 CHAT_CONV_SAVE_URL = "https://aistudio.xiaomimimo.com/open-apis/chat/conversation/save"
 
 # ---------------------------------------------------------------------------
@@ -449,7 +449,7 @@ def get_upstream_endpoints(model: str, ph: str) -> Tuple[str, str]:
     is_ultraspeed = is_ultraspeed_model(model)
     prefix = "https://aistudio.xiaomimimo.com/fastchat" if is_ultraspeed else "https://aistudio.xiaomimimo.com"
     quoted_ph = urllib.parse.quote(ph)
-    chat_url = f"{prefix}/open-apis/bot/chat?xiaomichatbot_ph={quoted_ph}"
+    chat_url = f"{prefix}/open-apis/react/chat?xiaomichatbot_ph={quoted_ph}"
     save_url = f"{prefix}/open-apis/chat/conversation/save?xiaomichatbot_ph={quoted_ph}"
     return chat_url, save_url
 
@@ -2410,6 +2410,11 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
 
             tc_list.append({"name": fn_name, "arguments": params})
         if tc_list:
+            if len(tc_list) > 1:
+                tc_list = [
+                    tc for tc in tc_list
+                    if not (tc.get("name") == "write_file" and isinstance(tc.get("arguments"), dict) and tc["arguments"].get("path") == "path/to/file")
+                ]
             _finalize_tool_calls(tc_list, reply_text, user_prompt, available_tools, tool_names)
             clean = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", reply_text).strip()
             clean = re.sub(r"<(?:function|invoke)[\s\S]*?</(?:function|invoke)>", "", clean).strip()
@@ -3782,6 +3787,34 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                             _record_usage(usage_data, model)
                                             continue
 
+                                        # Support native Xiaomi toolCalls array from /open-apis/react/chat
+                                        if "toolCalls" in parsed and isinstance(parsed["toolCalls"], list):
+                                            for tc in parsed["toolCalls"]:
+                                                fn_name = tc.get("name", "")
+                                                fn_args = tc.get("arguments", "{}")
+                                                if fn_name:
+                                                    accumulated_chunks.append(f"\n<tool_call>\n<function={fn_name}>\n{fn_args}\n</tool_call>\n")
+                                            continue
+
+                                        # Support native Xiaomi reasoningContent string from /open-apis/react/chat
+                                        r_piece = parsed.get("reasoningContent", "")
+                                        if r_piece:
+                                            _saw_reasoning = True
+                                            if thinking_enabled:
+                                                t_chunk = {
+                                                    "id": completion_id,
+                                                    "object": "chat.completion.chunk",
+                                                    "created": created_time,
+                                                    "model": model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {"role": "assistant", "reasoning_content": r_piece.replace("\x00", "")},
+                                                        "finish_reason": None
+                                                    }]
+                                                }
+                                                yield f"data: {json.dumps(t_chunk)}\n\n"
+                                            continue
+
                                         content_piece = parsed.get("content", "")
                                         # Ignore dialog ID event (both standard cluster and FastChat 6-digit IDs)
                                         if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
@@ -3885,7 +3918,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                 _content_started = True
                                                 accumulated_chunks.append(clean_piece)
                             _busy_max = _max_attempts if is_ultraspeed_model(target_upstream_model) else 4
-                            if (_upstream_was_busy or is_upstream_busy("".join(accumulated_chunks))) and attempt < _busy_max:
+                            _full_str = "".join(accumulated_chunks)
+                            _has_tools = False
+                            if tools:
+                                _probe_calls, _ = smart_extract_tool_calls(_full_str, user_prompt, tools)
+                                _has_tools = bool(_probe_calls)
+                            if not _has_tools and (_upstream_was_busy or is_upstream_busy(_full_str)) and attempt < _busy_max:
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/{_busy_max}...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
@@ -4271,6 +4309,21 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 _record_usage(usage_data, model)
                                 continue
 
+                            # Support native Xiaomi toolCalls array from /open-apis/react/chat
+                            if "toolCalls" in parsed and isinstance(parsed["toolCalls"], list):
+                                for tc in parsed["toolCalls"]:
+                                    fn_name = tc.get("name", "")
+                                    fn_args = tc.get("arguments", "{}")
+                                    if fn_name:
+                                        accumulated_chunks.append(f"\n<tool_call>\n<function={fn_name}>\n{fn_args}\n</tool_call>\n")
+                                continue
+
+                            # Support native Xiaomi reasoningContent string from /open-apis/react/chat
+                            r_piece = parsed.get("reasoningContent", "")
+                            if r_piece:
+                                _saw_reasoning = True
+                                continue
+
                             content_piece = parsed.get("content", "")
                             if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
                                 continue
@@ -4278,7 +4331,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
 
                 _busy_max_ns = _max_attempts if is_ultraspeed_model(target_upstream_model) else 4
-                if is_upstream_busy("".join(accumulated_chunks)) and attempt < _busy_max_ns:
+                _full_chunks_txt = "".join(accumulated_chunks)
+                _probe_ns_calls = []
+                if tools:
+                    _probe_ns_calls, _ = smart_extract_tool_calls(_full_chunks_txt, user_prompt, tools)
+                if not _probe_ns_calls and is_upstream_busy(_full_chunks_txt) and attempt < _busy_max_ns:
                     print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/{_busy_max_ns}...")
                     accumulated_chunks.clear()
                     _bump_retry()
@@ -4394,6 +4451,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     if not openai_tool_calls and not clean_text and not full_reply:
         if reasoning_text:
             clean_text = _empty_turn_fallback(tools)
+
+    if openai_tool_calls and clean_text and is_upstream_busy(clean_text):
+        clean_text = None
 
     message_payload: Dict[str, Any] = {
         "role": "assistant",
@@ -4571,64 +4631,76 @@ def cmd_login(args):
     proc = subprocess.Popen(cmd)
 
     async def _capture():
-        ws_url = None
-        for _ in range(30):
+        print("[mimoly] Waiting for login credentials (max 300s)...")
+        start = time.time()
+        import urllib.request
+
+        while time.time() - start < 300:
+            ws_url = None
+            # Prefer browser-level debugger URL (immune to tab navigation/redirects)
             try:
-                import urllib.request
-                with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json") as r:
-                    pages = json.loads(r.read().decode())
-                    for p in pages:
-                        if p.get("type") == "page":
-                            ws_url = p.get("webSocketDebuggerUrl")
-                            break
-                    if ws_url:
-                        break
+                with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version") as r:
+                    vdata = json.loads(r.read().decode())
+                    ws_url = vdata.get("webSocketDebuggerUrl")
             except Exception:
                 pass
-            await asyncio.sleep(1)
 
-        if not ws_url:
-            print("[mimoly] Could not connect to browser CDP.")
-            return False
+            if not ws_url:
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json") as r:
+                        pages = json.loads(r.read().decode())
+                        for p in pages:
+                            if p.get("type") == "page" and p.get("webSocketDebuggerUrl"):
+                                ws_url = p.get("webSocketDebuggerUrl")
+                                break
+                except Exception:
+                    pass
 
-        async with websockets.connect(ws_url) as ws:
-            print("[mimoly] Waiting for login credentials (max 300s)...")
-            start = time.time()
-            while time.time() - start < 300:
-                await ws.send(json.dumps({"id": 1, "method": "Network.getCookies"}))
-                msg = await ws.recv()
-                data = json.loads(msg)
-                cookies = data.get("result", {}).get("cookies", [])
-                
-                # Check target cookies
-                mimo_cookies = [
-                    c for c in cookies 
-                    if c.get("name") in ["userId", "xiaomichatbot_ph", "xiaomichatbot_serviceToken"]
-                ]
-                has_ph = any(c["name"] == "xiaomichatbot_ph" for c in mimo_cookies)
-                has_token = any(c["name"] == "xiaomichatbot_serviceToken" for c in mimo_cookies)
+            if not ws_url:
+                await asyncio.sleep(1)
+                continue
 
-                if has_ph and has_token:
-                    clean_cookies = []
-                    for c in mimo_cookies:
-                        clean_cookies.append({
-                            "name": c["name"],
-                            "value": str(c["value"]).strip('"'),
-                            "domain": c.get("domain", ".xiaomimimo.com"),
-                            "path": c.get("path", "/"),
-                            "expires": c.get("expires", 0),
-                        })
-                    with open(SESSION_FILE, "w", encoding="utf-8") as f:
-                        json.dump(clean_cookies, f, indent=2)
-                    print(f"\n[mimoly] BERHASIL! Berhasil mengekstrak {len(clean_cookies)} cookies ke session.json.")
-                    return True
+            try:
+                async with websockets.connect(ws_url) as ws:
+                    while time.time() - start < 300:
+                        # Try Storage.getCookies (browser target) first, fall back to Network.getCookies
+                        req_method = "Storage.getCookies" if "/devtools/browser" in ws_url else "Network.getCookies"
+                        await ws.send(json.dumps({"id": 1, "method": req_method}))
+                        msg = await ws.recv()
+                        data = json.loads(msg)
+                        cookies = data.get("result", {}).get("cookies", [])
 
-                await asyncio.sleep(2)
-                sys.stdout.write(".")
-                sys.stdout.flush()
+                        # Check target cookies
+                        mimo_cookies = [
+                            c for c in cookies 
+                            if c.get("name") in ["userId", "xiaomichatbot_ph", "xiaomichatbot_serviceToken"]
+                        ]
+                        has_ph = any(c["name"] == "xiaomichatbot_ph" for c in mimo_cookies)
+                        has_token = any(c["name"] == "xiaomichatbot_serviceToken" for c in mimo_cookies)
 
-            print("\n[mimoly] Timeout waiting for login.")
-            return False
+                        if has_ph and has_token:
+                            clean_cookies = []
+                            for c in mimo_cookies:
+                                clean_cookies.append({
+                                    "name": c["name"],
+                                    "value": str(c["value"]).strip('"'),
+                                    "domain": c.get("domain", ".xiaomimimo.com"),
+                                    "path": c.get("path", "/"),
+                                    "expires": c.get("expires", 0),
+                                })
+                            with open(SESSION_FILE, "w", encoding="utf-8") as f:
+                                json.dump(clean_cookies, f, indent=2)
+                            print(f"\n[mimoly] BERHASIL! Berhasil mengekstrak {len(clean_cookies)} cookies ke session.json.")
+                            return True
+
+                        await asyncio.sleep(2)
+                        sys.stdout.write(".")
+                        sys.stdout.flush()
+            except Exception:
+                await asyncio.sleep(1)
+
+        print("\n[mimoly] Timeout waiting for login.")
+        return False
 
     try:
         success = asyncio.run(_capture())

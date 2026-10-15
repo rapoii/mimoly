@@ -824,9 +824,9 @@ def main():
     check("get_upstream_endpoints helper exists", hasattr(m, "get_upstream_endpoints"))
     if hasattr(m, "get_upstream_endpoints"):
         u_norm, s_norm = m.get_upstream_endpoints("mimo-v2.6-pro", "dummy_ph")
-        check("standard model uses root open-apis", "/fastchat" not in u_norm and "/open-apis/bot/chat" in u_norm)
+        check("standard model uses root open-apis", "/fastchat" not in u_norm and "/open-apis/react/chat" in u_norm)
         u_ultra, s_ultra = m.get_upstream_endpoints("mimo-v2.6-pro-ultraspeed-studio", "dummy_ph")
-        check("ultraspeed routes to /fastchat cluster", "/fastchat/open-apis/bot/chat" in u_ultra and "/fastchat/open-apis/chat/conversation/save" in s_ultra)
+        check("ultraspeed routes to /fastchat cluster", "/fastchat/open-apis/react/chat" in u_ultra and "/fastchat/open-apis/chat/conversation/save" in s_ultra)
 
     # ------------------------------------------------------------------
     # [unit] TTS & ASR audio capabilities

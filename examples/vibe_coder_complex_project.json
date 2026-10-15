@@ -4,7 +4,7 @@
     "label": "01_ide_ambisius_dan_mockup",
     "persona_note": "Vibe coder datang bawa screenshot mockup antarmuka, minta dibikinin fullstack SaaS tanpa paham arsitektur teknis.",
     "prompt": "Halo bro! Gue ada ide gila nih mau bikin aplikasi SaaS namanya NexusFlow, semacam crypto & automated trading dashboard. Kemarin gue nemu screenshot dashboard keren banget kayak gini. Bikinin project fullstack-nya dong sekarang dari nol, ada backend API sama tampilan frontend-nya, pokoknya mirip gambar ini tapi lebih futuristik. Langsung buatin file-filenya ya, jangan nanya-nanya teknis ke gue, gue kaga paham kodingan sama sekali!",
-    "image": "./mockup.png",
+    "image": "D:/Software/Hermes Workspace/scratch/vibe_nexusflow/mockup.png",
     "expected_tools": ["vision_analyze", "write_file", "terminal"],
     "verification_criteria": "Model membaca gambar via vision_analyze, membuat scaffold direktori dan file app.py / index.html via write_file."
   },

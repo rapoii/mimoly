@@ -25,11 +25,12 @@ def run_turn(prompt, tools, model, provider, resume, timeout, cwd, image=None, m
         HERMES, "chat", "-q", prompt,
         "--provider", provider, "-m", model,
         "--reasoning", "none",
-        "-t", tools,
         "--format", "stream-json",
         "--ignore-rules", "--max-turns", str(max_turns),
     ]
-    if image:
+    if tools and tools not in ("all", "default", "none"):
+        cmd += ["-t", tools]
+    if image and Path(image).exists():
         cmd += ["--image", image]
     if resume:
         cmd += ["--resume", resume]
@@ -62,7 +63,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("turns_file")
     ap.add_argument("outdir")
-    ap.add_argument("--tools", default="terminal,file")
+    ap.add_argument("--tools", default="all")
     ap.add_argument("--model", default="mimo-v2.6-pro")
     ap.add_argument("--provider", default="mimoly")
     ap.add_argument("--timeout", type=int, default=900)
