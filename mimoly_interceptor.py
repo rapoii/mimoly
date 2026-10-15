@@ -51,21 +51,29 @@ class _HybridMethod:
         return _bound_caller
 
 
-# Regex for Indonesian technical action verbs & common inflections
+# Regex for Indonesian technical action verbs & common inflections (formal and informal vibe-coder suffixes like -in)
 _ID_ACTION_VERBS = re.compile(
-    r'\b(buat|buatkan|membuat|'
-    r'bikin|bikinkan|membikin|'
-    r'jalankan|menjalankan|'
-    r'edit|mengedit|'
-    r'perbaiki|memperbaiki|'
-    r'tulis|tuliskan|menulis|'
-    r'baca|bacakan|membaca|'
-    r'cari|carikan|mencari|'
+    r'\b(buat|buatkan|buatin|membuat|'
+    r'bikin|bikinkan|bikinin|membikin|'
+    r'jalan|jalankan|jalanin|menjalankan|'
+    r'nyalakan|nyalain|menyalakan|'
+    r'pasang|pasangkan|pasangin|memasang|'
+    r'edit|ngedit|mengedit|'
+    r'perbaiki|benerin|memperbaiki|'
+    r'tulis|tuliskan|tulisin|menulis|'
+    r'baca|bacakan|bacain|membaca|'
+    r'cari|carikan|cariin|mencari|'
+    r'hitung|hitungkan|hitungin|menghitung|'
     r'eksekusi|mengeksekusi|'
     r'ubah|mengubah|'
-    r'hapus|hapuskan|menghapus|'
-    r'cek|mengecek|'
-    r'buka|bukakan|membuka|'
+    r'hapus|hapuskan|hapusin|menghapus|'
+    r'cek|cekin|mengecek|'
+    r'periksa|periksakan|periksain|memeriksa|'
+    r'buka|bukakan|bukain|membuka|'
+    r'simpan|simpankan|simpen|simpenin|menyimpan|'
+    r'tanya|tanyakan|tanyain|menanyakan|'
+    r'setup|set up|setting|'
+    r'bagi|bagikan|bagiin|membagi|'
     r'test|mengetes|uji|menguji)\b',
     re.IGNORECASE
 )
