@@ -119,6 +119,37 @@ except ImportError:
         def set(self, key, value): pass
         def stats(self): return {}
 
+# Tool-RAG (In-Memory BM25 Working Set Retriever & Adaptive Schema Generator)
+try:
+    from mimoly_rag import ToolRetriever, render_adaptive_tool_catalogue
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    class ToolRetriever:  # type: ignore
+        @classmethod
+        def select_working_set(cls, tools, messages=None, max_dynamic_k=5):
+            return tools or []
+    def render_adaptive_tool_catalogue(tools=None, budget_chars=4000, framework="default", **k):  # type: ignore
+        return ""
+
+# Strict Action Interceptor & Framework-Aware Steering Directive Engine
+try:
+    from mimoly_interceptor import ActionEvaluator, Verdict
+    INTERCEPTOR_AVAILABLE = True
+except ImportError:
+    INTERCEPTOR_AVAILABLE = False
+    class Verdict:  # type: ignore
+        PASS = "PASS"
+        NUDGE_REASONING = "NUDGE_REASONING"
+        NUDGE_PROSE = "NUDGE_PROSE"
+    class ActionEvaluator:  # type: ignore
+        @classmethod
+        def evaluate_turn(cls, *a, **k):
+            return Verdict.PASS
+        @classmethod
+        def get_steering_directive(cls, *a, **k):
+            return ""
+
 
 def safe_json_loads(text: str, default=None):
     """Robust JSON loader: tries json_repair first, falls back to stdlib."""
@@ -1695,56 +1726,17 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     if tools:
         profile = AGENT_PROFILES.get(framework, AGENT_PROFILES["default"])
 
-        # Reserve a slice of the prompt budget for the tool catalogue. Hermes can
-        # send 250+ tools (every loaded MCP contributes dozens), and rendering
-        # each one in full crowds out the conversation history and the goal block
-        # — the two things the model actually needs to keep working. Render the
-        # catalogue in progressively terser tiers until it fits. Tool NAMES must
-        # always survive (the model cannot call a tool it cannot see); it is the
-        # history that yields budget, so the bare-name tier gets a generous cap.
-        def _render_tools(include_desc: bool, include_params: bool) -> List[str]:
-            lines = []
-            for t in tools:
-                fn = t.get("function", {})
-                name = fn.get("name")
-                if not name:
-                    continue
-                entry = name
-                if include_params:
-                    params = list(fn.get("parameters", {}).get("properties", {}).keys())
-                    if params:
-                        entry += f"({', '.join(params)})"
-                if include_desc:
-                    desc = (fn.get("description") or "").split("\n")[0].split(". ")[0].strip()
-                    if desc:
-                        entry += f": {desc[:80]}"
-                lines.append(f"- {entry}")
-            return lines
-
-        # Tier 1: names + params + short descriptions (most informative).
-        tool_desc = _render_tools(True, True)
-        if len("\n".join(tool_desc)) > int(MAX_PROMPT_BUDGET * 0.35):
-            # Tier 2: names + params.
-            tool_desc = _render_tools(False, True)
-        if len("\n".join(tool_desc)) > int(MAX_PROMPT_BUDGET * 0.45):
-            # Tier 3: bare names — must all fit.
-            tool_desc = _render_tools(False, False)
-        if len("\n".join(tool_desc)) > int(MAX_PROMPT_BUDGET * 0.60):
-            # Extreme case (hundreds of long names): pack comma-separated.
-            names = [line[2:] for line in tool_desc]
-            packed, cur = [], ""
-            for nm in names:
-                if len(cur) + len(nm) + 2 > 160 or not cur:
-                    if cur:
-                        packed.append(cur)
-                    cur = nm
-                else:
-                    cur += ", " + nm
-            if cur:
-                packed.append(cur)
-            tool_desc = ["\n".join(packed)]
-
-        intro_text = profile["tool_intro"].replace("{tool_desc}", "\n".join(tool_desc))
+        # Tool-RAG: Select active working set (Anchors + History Retention + Top-K Dynamic)
+        tools_list = _normalize_tools_list(tools)
+        working_set = ToolRetriever.select_working_set(tools_list, messages, max_dynamic_k=5)
+        tool_budget = min(4500, int(MAX_PROMPT_BUDGET * 0.35))
+        catalogue_text = render_adaptive_tool_catalogue(
+            working_set,
+            budget_chars=tool_budget,
+            framework=framework,
+        )
+        catalogue_text = mask_urls_for_upstream(catalogue_text)
+        intro_text = profile["tool_intro"].replace("{tool_desc}", catalogue_text)
         prompt_lines.append(intro_text)
 
     # Goal & status guidance
@@ -3531,8 +3523,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
         return JSONResponse({"error": str(e)}, status_code=401)
 
     # Format unified prompt (with per-framework tool template)
+    agent_framework = detect_agent_framework(request, body)
     if tools or len(messages) > 1:
-        agent_framework = detect_agent_framework(request, body)
         print(f"[mimoly] agent_framework={agent_framework} (profile: {AGENT_PROFILES[agent_framework]['label']})")
         is_ultra = (is_ultraspeed_model(target_upstream_model))
         user_prompt = build_agent_prompt(messages, tools, framework=agent_framework, is_ultraspeed=is_ultra)
@@ -3916,38 +3908,38 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 _busy_sleep = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
                                 await asyncio.sleep(_busy_sleep)
                                 continue
-                            # Empty / reasoning-only dead end: upstream yielded no
-                            # answer text and no tool call (the model spent its budget
-                            # inside <think>, or returned nothing at all). Retrying is
-                            # safe here because no answer chunk was emitted yet. Without
-                            # this the turn ends empty and the downstream agent reads a
-                            # placeholder as if the task were done, stalling the run.
-                            if (not accumulated_chunks and not _content_started
-                                    and _empty_retries < 2 and tools):
-                                _kind = "reasoning-only" if _saw_reasoning else "empty"
-                                _empty_retries += 1
-                                print(f"[mimoly] Upstream returned {_kind} turn (no answer/tool call), retrying {_empty_retries}/2...")
-                                accumulated_chunks.clear()
-                                in_thinking = False
-                                _saw_reasoning = False
-                                _first_token_at = None
-                                _bump_retry()
-                                # Nudge the model out of analysis-paralysis: a bare retry
-                                # often reproduces the same stall. Append an explicit
-                                # directive to act on the very next turn.
-                                upstream_payload["query"] = (
-                                    user_prompt
-                                    + "\n\n[INSTRUKSI LANJUTAN] Kamu sudah cukup menganalisis. "
-                                      "SEKARANG langsung lakukan aksi nyata: panggil tool berikutnya "
-                                      "(mis. write_file untuk menulis file, atau terminal untuk menjalankan perintah), "
-                                      "ATAU jika tugas benar-benar sudah selesai, tulis jawaban akhir yang jelas. "
-                                      "Jangan hanya berpikir tanpa output."
-                                )
-                                upstream_payload["msgId"] = uuid.uuid4().hex
-                                # Long backoff: FastChat throttles hard, so an aggressive
-                                # retry loop just converts one empty turn into a 429 storm.
-                                await asyncio.sleep(4.0 * _empty_retries)
-                                continue
+                            # Strict Action Interceptor: catch reasoning stalls & prose evasions
+                            if tools:
+                                full_attempt_reply = "".join(accumulated_chunks)
+                                raw_calls, _ = smart_extract_tool_calls(full_attempt_reply, user_prompt, tools)
+                                if not raw_calls:
+                                    verdict = ActionEvaluator.evaluate_turn(
+                                        messages,
+                                        tools_present=True,
+                                        reply_text=full_attempt_reply,
+                                        tool_calls=[],
+                                        framework=agent_framework,
+                                    )
+                                    if (verdict in (Verdict.NUDGE_REASONING, Verdict.NUDGE_PROSE)
+                                            and not _content_started
+                                            and _empty_retries < 2):
+                                        _empty_retries += 1
+                                        tool_names = [
+                                            (t.get("function", {}).get("name") if isinstance(t.get("function"), dict) else t.get("name"))
+                                            for t in _normalize_tools_list(tools)
+                                        ]
+                                        tool_names = [n for n in tool_names if n]
+                                        directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names)
+                                        print(f"[mimoly] Interceptor verdict={verdict.value}, auto-nudging attempt {_empty_retries}/2...")
+                                        accumulated_chunks.clear()
+                                        in_thinking = False
+                                        _saw_reasoning = False
+                                        _first_token_at = None
+                                        _bump_retry()
+                                        upstream_payload["query"] = upstream_payload["query"] + "\n\n" + directive
+                                        upstream_payload["msgId"] = uuid.uuid4().hex
+                                        await asyncio.sleep(3.0 * _empty_retries)
+                                        continue
                             break
                         except Exception as conn_err:
                             _conn_class = classify_exception(conn_err)
@@ -4183,6 +4175,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
         _budget = RetryBudget(max_attempts=_max_attempts, base_delay=1.0, max_delay=_max_delay, deadline=_deadline, min_delay=0.2)
         _budget.start()
+        _empty_retries = 0
         for attempt in range(_max_attempts):
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
@@ -4291,6 +4284,34 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     _busy_sleep_ns = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
                     await asyncio.sleep(_busy_sleep_ns)
                     continue
+
+                # Strict Action Interceptor: catch reasoning stalls & prose evasions
+                if tools:
+                    full_attempt_reply = "".join(accumulated_chunks)
+                    raw_calls, _ = smart_extract_tool_calls(full_attempt_reply, user_prompt, tools)
+                    if not raw_calls:
+                        verdict = ActionEvaluator.evaluate_turn(
+                            messages,
+                            tools_present=True,
+                            reply_text=full_attempt_reply,
+                            tool_calls=[],
+                            framework=agent_framework,
+                        )
+                        if verdict in (Verdict.NUDGE_REASONING, Verdict.NUDGE_PROSE) and _empty_retries < 2:
+                            _empty_retries += 1
+                            tool_names = [
+                                (t.get("function", {}).get("name") if isinstance(t.get("function"), dict) else t.get("name"))
+                                for t in _normalize_tools_list(tools)
+                            ]
+                            tool_names = [n for n in tool_names if n]
+                            directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names)
+                            print(f"[mimoly] [non-stream] Interceptor verdict={verdict.value}, auto-nudging attempt {_empty_retries}/2...")
+                            accumulated_chunks.clear()
+                            _bump_retry()
+                            upstream_payload["query"] = upstream_payload["query"] + "\n\n" + directive
+                            upstream_payload["msgId"] = uuid.uuid4().hex
+                            await asyncio.sleep(3.0 * _empty_retries)
+                            continue
                 break
             except Exception as conn_err:
                 _conn_class = classify_exception(conn_err)

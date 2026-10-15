@@ -1060,6 +1060,65 @@ def main():
         f"got {calls_dual}",
     )
 
+    # ------------------------------------------------------------------
+    # [unit] Tool-RAG & Strict Action Interceptor Pipeline Integration (Task 5)
+    # ------------------------------------------------------------------
+    print("[unit] Tool-RAG & Strict Action Interceptor Pipeline Integration (Task 5)")
+
+    large_tool_set = [
+        {"function": {"name": "terminal", "description": "Run shell commands", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}}}},
+        {"function": {"name": "read_file", "description": "Read file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}},
+        {"function": {"name": "write_file", "description": "Write file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}}},
+        {"function": {"name": "patch", "description": "Patch file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}},
+        {"function": {"name": "search_files", "description": "Search files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}}}},
+        {"function": {"name": "mcp__playwright__browser_navigate", "description": "Navigate web url", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}}}},
+    ] + [
+        {"function": {"name": f"synthetic_tool_{i}", "description": f"Synthetic tool description {i}", "parameters": {"type": "object", "properties": {"param": {"type": "string"}}}}}
+        for i in range(50)
+    ]
+
+    msgs_rag = [{"role": "user", "content": "Buka browser dan kunjungi https://example.com"}]
+    prompt_rag = m.build_agent_prompt(msgs_rag, tools=large_tool_set, framework="hermes")
+
+    check("build_agent_prompt preserves anchor tools", "terminal" in prompt_rag and "read_file" in prompt_rag)
+    check("build_agent_prompt retrieves relevant dynamic tool", "mcp__playwright__browser_navigate" in prompt_rag)
+    check("build_agent_prompt prunes irrelevant tools from working set", "synthetic_tool_49" not in prompt_rag)
+    check("build_agent_prompt includes schema parameter definitions", "Parameters:" in prompt_rag)
+    check("build_agent_prompt includes few-shot usage example", "Usage:" in prompt_rag and "<tool_call>" in prompt_rag)
+
+    # Interceptor directive evaluation across frameworks
+    from mimoly_interceptor import ActionEvaluator, Verdict
+    evaluator = ActionEvaluator()
+
+    # In-flight tool turn with prose evasion triggers NUDGE_PROSE
+    inflight_msgs = [
+        {"role": "user", "content": "Bikin file test.py"},
+        {"role": "assistant", "tool_calls": [{"name": "write_file"}]},
+        {"role": "tool", "name": "write_file", "content": "ok"}
+    ]
+    v_inflight = evaluator.evaluate_turn(inflight_msgs, tools_present=True, reply_text="Saya akan menulis kodenya nanti.", tool_calls=[])
+    check("evaluator intercepts in-flight prose evasion with NUDGE_PROSE", v_inflight == Verdict.NUDGE_PROSE, f"got {v_inflight}")
+
+    # Reasoning-only stall on technical action prompt triggers NUDGE_REASONING
+    action_msgs = [{"role": "user", "content": "Jalankan pytest sekarang"}]
+    v_stall = evaluator.evaluate_turn(action_msgs, tools_present=True, reply_text="<think>Thinking about tests...</think>", tool_calls=[])
+    check("evaluator intercepts reasoning stall with NUDGE_REASONING", v_stall == Verdict.NUDGE_REASONING, f"got {v_stall}")
+
+    # Conversational greeting passes without intercept
+    greet_msgs = [{"role": "user", "content": "Halo apa kabar?"}]
+    v_greet = evaluator.evaluate_turn(greet_msgs, tools_present=True, reply_text="Halo! Kabar baik.", tool_calls=[])
+    check("evaluator passes conversational greeting without intercept", v_greet == Verdict.PASS, f"got {v_greet}")
+
+    # Framework-aware directives contain target format
+    dir_hermes = evaluator.get_steering_directive("hermes", ["terminal", "write_file"])
+    dir_claude = evaluator.get_steering_directive("claude-code", ["terminal", "write_file"])
+    dir_codex = evaluator.get_steering_directive("codex", ["terminal", "write_file"])
+
+    check("hermes steering directive uses XML <tool_call>", "<tool_call>" in dir_hermes and "<function=tool_name>" in dir_hermes)
+    check("claude-code steering directive uses JSON tool_use", '"tool_use"' in dir_claude)
+    check("codex steering directive uses OpenAI tool_calls JSON", '"tool_calls"' in dir_codex)
+    check("steering directives include available tool hint", "terminal, write_file" in dir_hermes and "terminal, write_file" in dir_claude)
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")
