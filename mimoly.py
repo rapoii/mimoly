@@ -30,8 +30,8 @@ try:
     from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
     import httpx
     import uvicorn
-except ImportError:
-    print("[mimoly] Missing dependencies. Run: pip install -r requirements.txt")
+except ImportError as _e:
+    print(f"[mimoly] Missing dependencies: {_e}. Run: pip install -r requirements.txt")
     sys.exit(1)
 
 try:
