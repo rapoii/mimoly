@@ -137,6 +137,96 @@ def test_ranking_latency_benchmark_300_tools():
     assert any("docker" in n for n in selected_names), "Expected docker tool in selected working set"
 
 
+def test_class_level_select_working_set():
+    all_tools = [
+        {"function": {"name": "terminal", "description": "Run shell commands"}},
+        {"function": {"name": "read_file", "description": "Read file"}},
+        {"function": {"name": "mcp__playwright__browser_navigate", "description": "Navigate URL in browser"}},
+    ]
+    messages = [{"role": "user", "content": "Buka web https://example.com"}]
+
+    # Direct class-level invocation without manual instantiation
+    selected = ToolRetriever.select_working_set(all_tools, messages, max_dynamic_k=1)
+    names = [t["function"]["name"] for t in selected]
+    assert "terminal" in names, "Anchor tool 'terminal' must be selected via class-level call"
+    assert "read_file" in names, "Anchor tool 'read_file' must be selected via class-level call"
+    assert "mcp__playwright__browser_navigate" in names, "Dynamic tool must be selected via class-level call"
+
+    # Instance-level call with custom anchor configuration
+    custom_retriever = ToolRetriever(anchor_tools={"custom_anchor"})
+    custom_tools = [
+        {"function": {"name": "custom_anchor", "description": "Custom anchor tool"}},
+        {"function": {"name": "terminal", "description": "Standard terminal"}},
+    ]
+    custom_selected = custom_retriever.select_working_set(custom_tools, messages, max_dynamic_k=0)
+    custom_names = [t["function"]["name"] for t in custom_selected]
+    assert custom_names == ["custom_anchor"], f"Expected custom anchor only, got {custom_names}"
+
+
+def test_malformed_and_nameless_tool_filtering():
+    malformed_tools = [
+        None,
+        {},
+        {"function": None},
+        {"function": {}},
+        {"function": {"name": ""}},
+        {"function": {"name": None}},
+        {"name": ""},
+        {"name": None},
+        12345,
+        "not_a_valid_dict",
+        {"function": {"name": "valid_tool", "description": "A valid tool for tests"}},
+    ]
+    messages = [{"role": "user", "content": "Run tests on valid tool"}]
+
+    # Ensure no malformed tool leaks into selected working set
+    selected = ToolRetriever.select_working_set(malformed_tools, messages, max_dynamic_k=5)
+    assert len(selected) == 1, f"Expected exactly 1 valid tool, got {len(selected)}: {selected}"
+    name = selected[0]["function"]["name"]
+    assert name == "valid_tool", f"Expected 'valid_tool', got {name}"
+
+    # All-malformed list must return empty list without crashing
+    all_malformed = [None, {}, {"function": {}}, {"name": ""}, "bad_entry"]
+    assert ToolRetriever.select_working_set(all_malformed, messages) == []
+
+    # Malformed messages entries must not cause crashes
+    malformed_messages = [None, 123, "not_a_dict", {"role": "user", "content": "valid text"}]
+    res = ToolRetriever.select_working_set(malformed_tools, malformed_messages)
+    assert len(res) == 1 and res[0]["function"]["name"] == "valid_tool"
+
+
+def test_stable_chronological_retention_order():
+    tools = [
+        {"function": {"name": f"tool_{k}", "description": f"Tool {k} description"}}
+        for k in ["alpha", "beta", "gamma", "delta", "epsilon"]
+    ]
+    # 3 assistant turns with tool calls in specific order
+    messages = [
+        {"role": "user", "content": "turn 1"},
+        {"role": "assistant", "tool_calls": [
+            {"function": {"name": "tool_beta"}},
+            {"function": {"name": "tool_alpha"}},
+        ]},
+        {"role": "tool", "name": "tool_beta", "content": "res"},
+        {"role": "user", "content": "turn 2"},
+        {"role": "assistant", "tool_calls": [
+            {"function": {"name": "tool_gamma"}},
+        ]},
+        {"role": "user", "content": "turn 3"},
+        {"role": "assistant", "tool_calls": [
+            {"function": {"name": "tool_beta"}},  # Repeated tool call
+            {"function": {"name": "tool_delta"}},
+        ]},
+    ]
+    retriever = ToolRetriever(anchor_tools=set())  # Empty anchors to isolate retention order
+    selected = retriever.select_working_set(tools, messages, max_dynamic_k=0)
+    selected_names = [t["function"]["name"] for t in selected]
+
+    # Chronological order of first appearance across window: beta -> alpha -> gamma -> delta
+    expected = ["tool_beta", "tool_alpha", "tool_gamma", "tool_delta"]
+    assert selected_names == expected, f"Order mismatch: expected {expected}, got {selected_names}"
+
+
 def test_concurrency_thread_safety():
     tools = [
         {"function": {"name": f"tool_{i}", "description": f"Perform action {i} on system"}}
@@ -163,6 +253,9 @@ if __name__ == "__main__":
         test_bm25_ranking_precision,
         test_empty_and_fallback,
         test_ranking_latency_benchmark_300_tools,
+        test_class_level_select_working_set,
+        test_malformed_and_nameless_tool_filtering,
+        test_stable_chronological_retention_order,
         test_concurrency_thread_safety,
     ]
     passed = 0

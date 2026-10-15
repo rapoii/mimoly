@@ -6,10 +6,11 @@ Provides:
   - Zero shared mutable state across requests; thread-safe for 1000+ concurrent requests.
 """
 
+import functools
 import math
 import re
 import threading
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 # Translation table to fast-tokenize identifiers, code symbols, and punctuation into spaces
 _TRANS_TABLE = str.maketrans('_-.:,;!?/()[]{}\"\'\\|<>~`@#$%^&*+=', ' ' * 32)
@@ -58,36 +59,42 @@ _SYNONYMS: Dict[str, List[str]] = {
 _URL_RE = re.compile(r'https?://|\b\w+\.(?:com|org|net|io|id|gov|edu|co)\b|localhost', re.IGNORECASE)
 
 
-def _extract_tool_name(tool: Dict[str, Any]) -> str:
+def _extract_tool_name(tool: Any) -> str:
     """Extract tool identifier safely from either OpenAI function format or plain tool format."""
     if not isinstance(tool, dict):
         return ""
     fn = tool.get("function")
     if isinstance(fn, dict):
-        return fn.get("name", "")
-    return tool.get("name", "")
+        name = fn.get("name")
+        return name if isinstance(name, str) else ""
+    name = tool.get("name")
+    return name if isinstance(name, str) else ""
 
 
-def _extract_tool_desc(tool: Dict[str, Any]) -> str:
+def _extract_tool_desc(tool: Any) -> str:
     """Extract tool description safely."""
     if not isinstance(tool, dict):
         return ""
     fn = tool.get("function")
     if isinstance(fn, dict):
-        return fn.get("description", "")
-    return tool.get("description", "")
+        desc = fn.get("description")
+        return desc if isinstance(desc, str) else ""
+    desc = tool.get("description")
+    return desc if isinstance(desc, str) else ""
 
 
-def _extract_tool_params(tool: Dict[str, Any]) -> List[str]:
+def _extract_tool_params(tool: Any) -> List[str]:
     """Extract parameter property names from schema if present."""
     if not isinstance(tool, dict):
         return []
     fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
+    if not isinstance(fn, dict):
+        return []
     params = fn.get("parameters")
     if isinstance(params, dict):
         props = params.get("properties")
         if isinstance(props, dict):
-            return list(props.keys())
+            return [str(k) for k in props.keys()]
     return []
 
 
@@ -195,6 +202,35 @@ def _get_or_build_index(candidate_tools: List[Dict[str, Any]]) -> BM25Index:
     return index
 
 
+class _HybridMethod:
+    """Descriptor enabling a method to be invoked cleanly on both a class and an instance.
+
+    When called on a class (e.g. ToolRetriever.select_working_set(...)), it instantiates a
+    default instance and invokes the method. When called on an instance
+    (e.g. retriever.select_working_set(...)), it invokes the bound instance method directly.
+    """
+
+    def __init__(self, func: Callable[..., Any]):
+        self.func = func
+        functools.update_wrapper(self, func)
+
+    def __get__(self, instance: Any, owner: Optional[type] = None) -> Callable[..., Any]:
+        if instance is None:
+            @functools.wraps(self.func)
+            def _caller(*args: Any, **kwargs: Any) -> Any:
+                if args and isinstance(args[0], owner):  # type: ignore
+                    return self.func(args[0], *args[1:], **kwargs)
+                return self.func(owner(), *args, **kwargs)  # type: ignore
+
+            return _caller
+
+        @functools.wraps(self.func)
+        def _bound_caller(*args: Any, **kwargs: Any) -> Any:
+            return self.func(instance, *args, **kwargs)
+
+        return _bound_caller
+
+
 class ToolRetriever:
     """Two-Tier Working Set Manager with In-Memory BM25 Tool-RAG.
 
@@ -220,6 +256,7 @@ class ToolRetriever:
         else:
             self.anchor_tools = set(self.DEFAULT_ANCHOR_TOOLS)
 
+    @_HybridMethod
     def select_working_set(
         self,
         tools: List[Dict[str, Any]],
@@ -227,6 +264,12 @@ class ToolRetriever:
         max_dynamic_k: int = 5,
     ) -> List[Dict[str, Any]]:
         """Select working set of tools for the current dialogue turn.
+
+        Callable either as an instance method:
+            retriever = ToolRetriever(...)
+            retriever.select_working_set(tools, messages, max_dynamic_k=5)
+        or directly as a classmethod:
+            ToolRetriever.select_working_set(tools, messages, max_dynamic_k=5)
 
         Args:
             tools: Full caller tool definitions list.
@@ -239,9 +282,17 @@ class ToolRetriever:
         if not tools:
             return []
 
+        # Filter candidate tools upfront: must be dict and have a non-empty name string
+        valid_tools: List[Dict[str, Any]] = [
+            t for t in tools
+            if isinstance(t, dict) and bool(_extract_tool_name(t))
+        ]
+        if not valid_tools:
+            return []
+
         # Map name -> tool definition for fast resolution and existence check
         tool_map: Dict[str, Dict[str, Any]] = {}
-        for t in tools:
+        for t in valid_tools:
             name = _extract_tool_name(t)
             if name:
                 tool_map[name] = t
@@ -252,7 +303,7 @@ class ToolRetriever:
         # -------------------------------------------------------------
         # 1. Anchor Tier (Mandatory Agent Primitives)
         # -------------------------------------------------------------
-        for t in tools:
+        for t in valid_tools:
             name = _extract_tool_name(t)
             if name in self.anchor_tools and name not in selected_names:
                 selected_names.add(name)
@@ -261,13 +312,24 @@ class ToolRetriever:
         # -------------------------------------------------------------
         # 2. Contextual Retention Tier (Last 3 assistant turns)
         # -------------------------------------------------------------
-        recent_tool_names: Set[str] = set()
+        # Collect window covering up to the last 3 assistant turns
+        window_messages: List[Dict[str, Any]] = []
         assistant_turns = 0
-
         for m in reversed(messages or []):
+            if not isinstance(m, dict):
+                continue
+            window_messages.append(m)
+            if m.get("role") == "assistant":
+                assistant_turns += 1
+                if assistant_turns >= 3:
+                    break
+
+        # Process window in chronological order (earliest to latest in window)
+        # using dict insertion ordering to preserve stable chronology
+        recent_tool_names: Dict[str, None] = {}
+        for m in reversed(window_messages):
             role = m.get("role")
             if role == "assistant":
-                assistant_turns += 1
                 tool_calls = m.get("tool_calls")
                 if isinstance(tool_calls, list):
                     for tc in tool_calls:
@@ -275,34 +337,32 @@ class ToolRetriever:
                             fn = tc.get("function")
                             fn_name = fn.get("name") if isinstance(fn, dict) else None
                             fn_name = fn_name or tc.get("name")
-                            if fn_name:
-                                recent_tool_names.add(fn_name)
+                            if isinstance(fn_name, str) and fn_name:
+                                recent_tool_names[fn_name] = None
                 # Also detect XML tool calls inside assistant message text
                 content = m.get("content")
                 if isinstance(content, str):
                     for match in re.findall(r'<function=([a-zA-Z0-9_]+)>', content):
-                        recent_tool_names.add(match)
-                if assistant_turns >= 3:
-                    break
+                        recent_tool_names[match] = None
             elif role == "tool":
                 name = m.get("name")
-                if name:
-                    recent_tool_names.add(name)
+                if isinstance(name, str) and name:
+                    recent_tool_names[name] = None
 
         for name in recent_tool_names:
             if name in tool_map and name not in selected_names:
                 selected_names.add(name)
                 working_set.append(tool_map[name])
 
-        # If no dynamic slots requested or all tools already selected, return early
-        if max_dynamic_k <= 0 or len(selected_names) >= len(tools):
+        # If no dynamic slots requested or all valid tools already selected, return early
+        if max_dynamic_k <= 0 or len(selected_names) >= len(valid_tools):
             return working_set
 
         # -------------------------------------------------------------
         # 3. Dynamic Discovery Tier (In-Memory BM25)
         # -------------------------------------------------------------
         candidate_tools = [
-            t for t in tools
+            t for t in valid_tools
             if _extract_tool_name(t) not in selected_names
         ]
 
@@ -312,6 +372,8 @@ class ToolRetriever:
         # Derive search query: last_user_message + last_tool_observation_preview
         last_user_text = ""
         for m in reversed(messages or []):
+            if not isinstance(m, dict):
+                continue
             if m.get("role") == "user":
                 c = m.get("content", "")
                 if isinstance(c, list):
@@ -323,6 +385,8 @@ class ToolRetriever:
 
         last_tool_obs = ""
         for m in reversed(messages or []):
+            if not isinstance(m, dict):
+                continue
             if m.get("role") == "tool":
                 c = m.get("content", "")
                 if isinstance(c, str):
@@ -370,15 +434,15 @@ class ToolRetriever:
             for _, doc_idx in positive_matches[:max_dynamic_k]:
                 tool = candidate_tools[doc_idx]
                 name = _extract_tool_name(tool)
-                if name not in selected_names:
+                if name and name not in selected_names:
                     selected_names.add(name)
                     working_set.append(tool)
         elif not working_set:
             # Fallback if no anchor tools existed and query had zero matches:
-            # Include first max_dynamic_k tools so caller gets a non-empty catalogue
+            # Include first max_dynamic_k valid tools so caller gets a non-empty catalogue
             for tool in candidate_tools[:max_dynamic_k]:
                 name = _extract_tool_name(tool)
-                if name not in selected_names:
+                if name and name not in selected_names:
                     selected_names.add(name)
                     working_set.append(tool)
 
