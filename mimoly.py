@@ -1674,15 +1674,25 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                         try:
                             parsed_args = json.loads(raw_args)
                             if isinstance(parsed_args, dict):
-                                arg_str = ", ".join(f"{k}={v!r}" for k, v in list(parsed_args.items())[:3])
-                                actions.append(f"{fn_name}({arg_str})")
+                                arg_parts = []
+                                for k, v in list(parsed_args.items())[:3]:
+                                    s = str(v).replace("\n", " ").strip()
+                                    if len(s) > 40:
+                                        s = s[:40] + "..."
+                                    arg_parts.append(f"{k}={s!r}")
+                                actions.append(f"{fn_name}({', '.join(arg_parts)})")
                             else:
                                 actions.append(f"{fn_name}()")
                         except Exception:
                             actions.append(f"{fn_name}()")
                     elif isinstance(raw_args, dict):
-                        arg_str = ", ".join(f"{k}={v!r}" for k, v in list(raw_args.items())[:3])
-                        actions.append(f"{fn_name}({arg_str})")
+                        arg_parts = []
+                        for k, v in list(raw_args.items())[:3]:
+                            s = str(v).replace("\n", " ").strip()
+                            if len(s) > 40:
+                                s = s[:40] + "..."
+                            arg_parts.append(f"{k}={s!r}")
+                        actions.append(f"{fn_name}({', '.join(arg_parts)})")
                     else:
                         actions.append(f"{fn_name}()")
                 history.append(f"[Assistant Action]: Menjalankan tool: {', '.join(actions)}")
@@ -1787,11 +1797,15 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         for _kind, desc in action_ledger:
             if desc not in seen:
                 seen.append(desc)
-        ledger_lines = [f"- {d}" for d in seen[-40:]]
+        ledger_lines = [f"- {d}" for d in seen[-15:]]
         ledger_block = (
             "Tool yang SUDAH kamu jalankan di sesi ini (JANGAN ulangi tanpa alasan baru):\n"
             + "\n".join(ledger_lines)
         )
+        if len(ledger_block) > 1200:
+            ledger_block = ledger_block[:1200] + "\n...[ledger disingkat]"
+
+    if ledger_block:
         prompt_lines.append(ledger_block)
 
     if goal_block:
@@ -1800,20 +1814,19 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
     assembled = "\n\n".join(prompt_lines)
     if len(assembled) > MAX_PROMPT_BUDGET:
         # Blind tail truncation would cut the goal (the actual task) and the
-        # anti-loop ledger — both appended last. Keep the head plus those two
-        # blocks and drop the middle (stale history) instead.
+        # anti-loop ledger — both appended last. The goal_block is SACROSANCT
+        # and must NEVER be truncated or omitted.
         marker = "\n\n...[riwayat disingkat]...\n\n"
-        keep_tail = "\n\n".join(x for x in (ledger_block, goal_block) if x)
-        # The kept tail must never consume the whole budget on its own.
-        if len(keep_tail) > MAX_PROMPT_BUDGET // 2:
-            keep_tail = keep_tail[: MAX_PROMPT_BUDGET // 2] + "\n...[disingkat]"
+        keep_tail = ("\n\n" + goal_block) if goal_block else ""
+        if ledger_block:
+            keep_tail = "\n\n" + ledger_block + keep_tail
         head_len = MAX_PROMPT_BUDGET - len(keep_tail) - len(marker)
-        if keep_tail and head_len > 0:
-            assembled = assembled[:head_len] + marker + keep_tail
-        elif keep_tail:
-            assembled = keep_tail[:MAX_PROMPT_BUDGET]
+        if head_len > 0:
+            assembled = assembled[:head_len] + marker + keep_tail.lstrip()
         else:
-            assembled = assembled[:MAX_PROMPT_BUDGET]
+            assembled = (ledger_block + "\n\n" if ledger_block else "") + (goal_block or "")
+            if len(assembled) > MAX_PROMPT_BUDGET:
+                assembled = (goal_block or assembled)[:MAX_PROMPT_BUDGET]
     return assembled
 
 

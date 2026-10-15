@@ -114,7 +114,9 @@ _IMPERATIVE_CONJUNCTIONS = re.compile(
 
 # Promissory evasion phrases (model promises action in prose instead of calling a tool)
 _PROMISSORY_EVASIONS = re.compile(
-    r'\b(saya akan|berikutnya saya akan|selanjutnya saya akan|nanti saya|mari kita jalankan|'
+    r'\b('
+    r'((saya|gue|gw|aku|kami|kita)\s+(akan|mau|bakal|langsung|hendak|bikin|bikinin|buat|buatin|siapin|kerjain|jalanin|eksekusi|patch|tulis|baca|cek|periksa|cari))\b|'
+    r'berikutnya saya akan|selanjutnya saya akan|nanti saya|mari kita jalankan|'
     r'akan saya|sekarang saya akan|langkah selanjutnya|kita akan|saya mau|saya hendak|'
     r'i will now|i will next|let me run|let me check|let me execute|let me read|'
     r'let me write|let me test|let me edit|let me patch|let me inspect|next i need to|'
