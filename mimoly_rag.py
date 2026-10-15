@@ -7,6 +7,7 @@ Provides:
 """
 
 import functools
+import json
 import math
 import re
 import threading
@@ -57,6 +58,16 @@ _SYNONYMS: Dict[str, List[str]] = {
 }
 
 _URL_RE = re.compile(r'https?://|\b\w+\.(?:com|org|net|io|id|gov|edu|co)\b|localhost', re.IGNORECASE)
+
+DEFAULT_ANCHOR_TOOLS: Set[str] = {
+    "terminal",
+    "read_file",
+    "write_file",
+    "patch",
+    "search_files",
+    "execute_code",
+    "clarify",
+}
 
 
 def _extract_tool_name(tool: Any) -> str:
@@ -240,15 +251,7 @@ class ToolRetriever:
       3. Dynamic Discovery Tier (In-memory BM25 over remaining tools).
     """
 
-    DEFAULT_ANCHOR_TOOLS = {
-        "terminal",
-        "read_file",
-        "write_file",
-        "patch",
-        "search_files",
-        "execute_code",
-        "clarify",
-    }
+    DEFAULT_ANCHOR_TOOLS = DEFAULT_ANCHOR_TOOLS
 
     def __init__(self, anchor_tools: Optional[Set[str]] = None):
         if anchor_tools is not None:
@@ -447,3 +450,258 @@ class ToolRetriever:
                     working_set.append(tool)
 
         return working_set
+
+
+def _get_tool_function_dict(tool: Any) -> Dict[str, Any]:
+    """Extract inner function definition dictionary safely."""
+    if not isinstance(tool, dict):
+        return {}
+    fn = tool.get("function")
+    if isinstance(fn, dict):
+        return fn
+    return tool
+
+
+def _generate_few_shot_example(
+    name: str,
+    props: Dict[str, Any],
+    required_set: Set[str],
+    framework: str,
+) -> str:
+    """Generate a compact single-line invocation example tailored to the target framework."""
+    if required_set:
+        param_names = [str(p) for p in props.keys() if str(p) in required_set]
+        for r in required_set:
+            if r not in param_names:
+                param_names.append(str(r))
+    elif props:
+        param_names = [str(p) for p in list(props.keys())[:3]]
+    else:
+        param_names = []
+
+    dummy_args: List[Tuple[str, Any]] = []
+    for p_str in param_names:
+        spec = props.get(p_str, {}) if isinstance(props, dict) else {}
+        if not isinstance(spec, dict):
+            spec = {}
+
+        if "default" in spec:
+            val = spec["default"]
+        elif "enum" in spec and isinstance(spec["enum"], list) and spec["enum"]:
+            val = spec["enum"][0]
+        elif name == "execute_code" and p_str == "code":
+            val = 'print("hello")'
+        elif name in ("write_file", "patch", "read_file") and p_str == "path":
+            val = "path/to/file"
+        elif name == "patch" and p_str == "old_string":
+            val = "old_line"
+        elif name == "patch" and p_str == "new_string":
+            val = "new_line"
+        elif name == "write_file" and p_str == "content":
+            val = "file_content"
+        elif name == "terminal" and p_str == "command":
+            val = "ls -la"
+        elif name == "search_files" and p_str == "pattern":
+            val = "search_pattern"
+        elif "url" in p_str.lower() or "link" in p_str.lower():
+            val = "https://example.com"
+        elif "file" in p_str.lower() or "path" in p_str.lower():
+            val = "path/to/file"
+        elif "query" in p_str.lower() or "search" in p_str.lower():
+            val = "search_query"
+        elif "name" in p_str.lower():
+            val = "item_name"
+        elif "id" in p_str.lower():
+            val = "id_123"
+        else:
+            ptype = spec.get("type", "string")
+            if ptype in ("integer", "number"):
+                val = 1
+            elif ptype == "boolean":
+                val = True
+            elif ptype == "array":
+                val = ["item"]
+            elif ptype == "object":
+                val = {"key": "value"}
+            else:
+                val = "value"
+        dummy_args.append((p_str, val))
+
+    fw = (framework or "default").lower().strip()
+    if fw in ("claude-code", "anthropic"):
+        input_dict = {k: v for k, v in dummy_args}
+        return json.dumps({"type": "tool_use", "id": "call_1", "name": name, "input": input_dict})
+    elif fw in ("codex", "openai"):
+        args_dict = {k: v for k, v in dummy_args}
+        return json.dumps({
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(args_dict)
+                    }
+                }
+            ]
+        })
+    else:
+        # Default / Hermes / Pi / OpenCode / Qwen XML style
+        if dummy_args:
+            xml_params = "".join(f"<parameter={k}>{v}</parameter>" for k, v in dummy_args)
+            return f"<tool_call><function={name}>{xml_params}</function></tool_call>"
+        else:
+            return f"<tool_call><function={name}></function></tool_call>"
+
+
+def _render_tool_entry(
+    tool: Dict[str, Any],
+    framework: str,
+    param_desc_limit: Optional[int] = None,
+) -> str:
+    """Render a single tool's schema, types, parameters, and few-shot example."""
+    name = _extract_tool_name(tool)
+    if not name:
+        return ""
+    desc = " ".join(_extract_tool_desc(tool).strip().split())
+
+    fn = _get_tool_function_dict(tool)
+    params = fn.get("parameters") if isinstance(fn, dict) else None
+    props = params.get("properties") if isinstance(params, dict) else None
+    required = params.get("required") if isinstance(params, dict) else None
+    required_set = set(str(r) for r in required) if isinstance(required, (list, tuple, set)) else set()
+
+    lines = []
+    if desc:
+        lines.append(f"- {name}: {desc}")
+    else:
+        lines.append(f"- {name}")
+
+    if isinstance(props, dict) and props:
+        lines.append("  Parameters:")
+        for pname, pspec in props.items():
+            pname_str = str(pname)
+            if not isinstance(pspec, dict):
+                pspec = {}
+            ptype = pspec.get("type", "any")
+            if ptype == "array" and isinstance(pspec.get("items"), dict):
+                itype = pspec["items"].get("type")
+                if itype:
+                    ptype = f"array of {itype}"
+
+            pdesc = " ".join(str(pspec.get("description", "")).strip().split())
+            if param_desc_limit is not None and len(pdesc) > param_desc_limit:
+                pdesc = pdesc[:param_desc_limit]
+
+            req_label = "required" if pname_str in required_set else "optional"
+
+            extra = []
+            if "enum" in pspec and isinstance(pspec["enum"], list):
+                enum_strs = [json.dumps(v) for v in pspec["enum"][:4]]
+                extra.append(f"enum: [{', '.join(enum_strs)}]")
+            if "default" in pspec:
+                extra.append(f"default: {json.dumps(pspec['default'])}")
+
+            type_info = f"{ptype}, {req_label}"
+            if extra:
+                type_info += f", {', '.join(extra)}"
+
+            if pdesc:
+                lines.append(f"    - {pname_str} ({type_info}): {pdesc}")
+            else:
+                lines.append(f"    - {pname_str} ({type_info})")
+
+    if required_set:
+        req_sorted = sorted(required_set)
+        lines.append(f"  Required: {', '.join(req_sorted)}")
+
+    example = _generate_few_shot_example(name, props or {}, required_set, framework)
+    if example:
+        lines.append(f"  Usage: {example}")
+
+    return "\n".join(lines)
+
+
+def _render_catalogue(
+    tools_list: List[Dict[str, Any]],
+    framework: str,
+    param_desc_limit: Optional[int] = None,
+) -> str:
+    """Render list of tools separated by newlines."""
+    entries = []
+    for t in tools_list:
+        entry = _render_tool_entry(t, framework, param_desc_limit=param_desc_limit)
+        if entry:
+            entries.append(entry)
+    return "\n\n".join(entries)
+
+
+def render_adaptive_tool_catalogue(
+    tools: List[Dict[str, Any]],
+    budget_chars: int = 4000,
+    framework: str = "default",
+    anchor_tools: Optional[Set[str]] = None,
+) -> str:
+    """Render an adaptive full-schema tool catalogue with few-shot examples and budget pruning.
+
+    Budget Pruning Policy:
+      1. If total formatted length > budget_chars, truncate parameter descriptions to 80 chars
+         while strictly preserving property names, types, and required lists.
+      2. If still over budget, dynamically throttle dynamic tools (while unconditionally
+         preserving anchor tools) until the total schema fits under budget_chars.
+    """
+    if not tools:
+        return ""
+
+    budget_chars = int(budget_chars)
+    if budget_chars <= 0:
+        return ""
+
+    if anchor_tools is not None:
+        anchors = frozenset(anchor_tools)
+    else:
+        anchors = frozenset(DEFAULT_ANCHOR_TOOLS)
+
+    valid_tools = [t for t in tools if isinstance(t, dict) and _extract_tool_name(t)]
+    if not valid_tools:
+        return ""
+
+    # Phase 0: Full descriptions
+    rendered = _render_catalogue(valid_tools, framework, param_desc_limit=None)
+    if len(rendered) <= budget_chars:
+        return rendered
+
+    # Phase 1: Truncate parameter descriptions to 80 chars
+    rendered = _render_catalogue(valid_tools, framework, param_desc_limit=80)
+    if len(rendered) <= budget_chars:
+        return rendered
+
+    # Phase 2: Still over budget -> throttle dynamic tools from lowest priority (reverse order)
+    # while unconditionally preserving anchor tools
+    current_tools = list(valid_tools)
+    while len(rendered) > budget_chars:
+        last_dyn_idx = None
+        for i in range(len(current_tools) - 1, -1, -1):
+            name = _extract_tool_name(current_tools[i])
+            if name not in anchors:
+                last_dyn_idx = i
+                break
+
+        if last_dyn_idx is None:
+            # All remaining tools are anchors; stop throttling dynamic tools
+            break
+
+        current_tools.pop(last_dyn_idx)
+        rendered = _render_catalogue(current_tools, framework, param_desc_limit=80)
+        if len(rendered) <= budget_chars:
+            return rendered
+
+    # If still over budget and only anchors remain:
+    # Unconditionally preserve anchors, try stricter parameter description truncation
+    if len(rendered) > budget_chars:
+        for limit in (40, 20, 0):
+            rendered = _render_catalogue(current_tools, framework, param_desc_limit=limit)
+            if len(rendered) <= budget_chars:
+                return rendered
+
+    return rendered
