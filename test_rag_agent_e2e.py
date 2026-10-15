@@ -392,27 +392,27 @@ def test_turn_1_action_imperative_prompt_and_a11_healing() -> None:
         mock_client = ScriptedMockClient([upstream_reply])
         orig_client = mimoly.get_shared_client
         mimoly.get_shared_client = lambda: mock_client
-
-        transport = ASGITransport(app=mimoly.app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post("/v1/chat/completions", json={
-                "model": "mimo-v2.6-pro",
-                "messages": messages,
-                "tools": tools,
-                "stream": False
-            })
-            assert resp.status_code == 200, f"HTTP status {resp.status_code}: {resp.text}"
-            data = resp.json()
-            choice = data["choices"][0]
-            assert choice["finish_reason"] == "tool_calls", f"Expected finish_reason 'tool_calls', got {choice['finish_reason']}"
-            tcs = choice["message"].get("tool_calls", [])
-            assert len(tcs) == 1
-            fn_args = json.loads(tcs[0]["function"]["arguments"])
-            assert fn_args.get("path") == "calculator.py"
-            assert "def add" in fn_args.get("content", "")
-            assert "def divide" in fn_args.get("content", "")
-
-        mimoly.get_shared_client = orig_client
+        try:
+            transport = ASGITransport(app=mimoly.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/v1/chat/completions", json={
+                    "model": "mimo-v2.6-pro",
+                    "messages": messages,
+                    "tools": tools,
+                    "stream": False
+                })
+                assert resp.status_code == 200, f"HTTP status {resp.status_code}: {resp.text}"
+                data = resp.json()
+                choice = data["choices"][0]
+                assert choice["finish_reason"] == "tool_calls", f"Expected finish_reason 'tool_calls', got {choice['finish_reason']}"
+                tcs = choice["message"].get("tool_calls", [])
+                assert len(tcs) == 1
+                fn_args = json.loads(tcs[0]["function"]["arguments"])
+                assert fn_args.get("path") == "calculator.py"
+                assert "def add" in fn_args.get("content", "")
+                assert "def divide" in fn_args.get("content", "")
+        finally:
+            mimoly.get_shared_client = orig_client
 
     asyncio.run(run_e2e())
 
@@ -533,24 +533,24 @@ def test_turn_3_final_completion_pass_through() -> None:
         mock_client = ScriptedMockClient([final_summary])
         orig_client = mimoly.get_shared_client
         mimoly.get_shared_client = lambda: mock_client
-
-        transport = ASGITransport(app=mimoly.app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post("/v1/chat/completions", json={
-                "model": "mimo-v2.6-pro",
-                "messages": messages,
-                "tools": tools,
-                "stream": False
-            })
-            assert resp.status_code == 200, f"HTTP status {resp.status_code}: {resp.text}"
-            data = resp.json()
-            choice = data["choices"][0]
-            assert choice["finish_reason"] == "stop", f"Expected finish_reason 'stop', got {choice['finish_reason']}"
-            assert choice["message"].get("tool_calls") is None, "Legitimate completion must not have forced tool calls"
-            assert "seluruh pengujian lolos 100%" in choice["message"].get("content", "")
-            assert mock_client.attempts == 1, f"Expected 1 attempt (no auto-nudge), got {mock_client.attempts}"
-
-        mimoly.get_shared_client = orig_client
+        try:
+            transport = ASGITransport(app=mimoly.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/v1/chat/completions", json={
+                    "model": "mimo-v2.6-pro",
+                    "messages": messages,
+                    "tools": tools,
+                    "stream": False
+                })
+                assert resp.status_code == 200, f"HTTP status {resp.status_code}: {resp.text}"
+                data = resp.json()
+                choice = data["choices"][0]
+                assert choice["finish_reason"] == "stop", f"Expected finish_reason 'stop', got {choice['finish_reason']}"
+                assert choice["message"].get("tool_calls") is None, "Legitimate completion must not have forced tool calls"
+                assert "seluruh pengujian lolos 100%" in choice["message"].get("content", "")
+                assert mock_client.attempts == 1, f"Expected 1 attempt (no auto-nudge), got {mock_client.attempts}"
+        finally:
+            mimoly.get_shared_client = orig_client
 
     asyncio.run(run_e2e())
 
@@ -586,26 +586,26 @@ def test_turn_4_out_of_working_set_tool_validation() -> None:
         mock_client = ScriptedMockClient([upstream_reply])
         orig_client = mimoly.get_shared_client
         mimoly.get_shared_client = lambda: mock_client
-
-        transport = ASGITransport(app=mimoly.app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post("/v1/chat/completions", json={
-                "model": "mimo-v2.6-pro",
-                "messages": messages,
-                "tools": tools,
-                "stream": False
-            })
-            assert resp.status_code == 200, f"HTTP status {resp.status_code}: {resp.text}"
-            data = resp.json()
-            choice = data["choices"][0]
-            assert choice["finish_reason"] == "tool_calls"
-            tcs = choice["message"].get("tool_calls", [])
-            assert len(tcs) == 1
-            assert tcs[0]["function"]["name"] == "mcp__docker__container_list"
-            fn_args = json.loads(tcs[0]["function"]["arguments"])
-            assert fn_args.get("payload") == "running"
-
-        mimoly.get_shared_client = orig_client
+        try:
+            transport = ASGITransport(app=mimoly.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/v1/chat/completions", json={
+                    "model": "mimo-v2.6-pro",
+                    "messages": messages,
+                    "tools": tools,
+                    "stream": False
+                })
+                assert resp.status_code == 200, f"HTTP status {resp.status_code}: {resp.text}"
+                data = resp.json()
+                choice = data["choices"][0]
+                assert choice["finish_reason"] == "tool_calls"
+                tcs = choice["message"].get("tool_calls", [])
+                assert len(tcs) == 1
+                assert tcs[0]["function"]["name"] == "mcp__docker__container_list"
+                fn_args = json.loads(tcs[0]["function"]["arguments"])
+                assert fn_args.get("payload") == "running"
+        finally:
+            mimoly.get_shared_client = orig_client
 
     asyncio.run(run_e2e())
 
@@ -709,25 +709,80 @@ def test_turn_6_conversational_greeting_and_question_pass_through() -> None:
         mock_client = ScriptedMockClient([greet_reply])
         orig_client = mimoly.get_shared_client
         mimoly.get_shared_client = lambda: mock_client
-
-        transport = ASGITransport(app=mimoly.app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post("/v1/chat/completions", json={
-                "model": "mimo-v2.6-pro",
-                "messages": messages_greet,
-                "tools": tools,
-                "stream": False
-            })
-            assert resp.status_code == 200
-            data = resp.json()
-            choice = data["choices"][0]
-            assert choice["finish_reason"] == "stop"
-            assert choice["message"].get("tool_calls") is None
-            assert mock_client.attempts == 1
-
-        mimoly.get_shared_client = orig_client
+        try:
+            transport = ASGITransport(app=mimoly.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/v1/chat/completions", json={
+                    "model": "mimo-v2.6-pro",
+                    "messages": messages_greet,
+                    "tools": tools,
+                    "stream": False
+                })
+                assert resp.status_code == 200
+                data = resp.json()
+                choice = data["choices"][0]
+                assert choice["finish_reason"] == "stop"
+                assert choice["message"].get("tool_calls") is None
+                assert mock_client.attempts == 1
+        finally:
+            mimoly.get_shared_client = orig_client
 
     asyncio.run(run_e2e())
+
+
+def test_turn_7_streaming_sse_interceptor_and_tool_call() -> None:
+    """Turn 7: Streaming SSE mode with 250 tools, prose evasion intercepted, retry emits tool call chunks."""
+    tools = build_250_mock_tools()
+    messages = [
+        {"role": "user", "content": "Jalankan pytest -v untuk mengetes seluruh modul."}
+    ]
+
+    evasion_attempt = "Saya akan segera menjalankan pytest -v sekarang."
+    tool_attempt = (
+        "<tool_call>\n"
+        "<function=terminal>\n"
+        '{"command": "pytest -v"}\n'
+        "</tool_call>"
+    )
+
+    async def run_streaming() -> None:
+        mock_client = ScriptedMockClient([evasion_attempt, tool_attempt])
+        orig_client = mimoly.get_shared_client
+        mimoly.get_shared_client = lambda: mock_client
+
+        orig_sleep = asyncio.sleep
+        asyncio.sleep = lambda s: orig_sleep(0.001)
+
+        try:
+            transport = ASGITransport(app=mimoly.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                async with client.stream("POST", "/v1/chat/completions", json={
+                    "model": "mimo-v2.6-pro",
+                    "messages": messages,
+                    "tools": tools,
+                    "stream": True
+                }) as resp:
+                    assert resp.status_code == 200
+                    chunks = []
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data: ") and line != "data: [DONE]":
+                            chunks.append(json.loads(line[6:]))
+
+            assert mock_client.attempts == 2, f"Expected 2 attempts (1 nudge), got {mock_client.attempts}"
+            tool_chunks = [c for c in chunks if c["choices"][0]["delta"].get("tool_calls")]
+            assert len(tool_chunks) >= 1, "Expected tool_calls chunks in SSE stream"
+            tc = tool_chunks[0]["choices"][0]["delta"]["tool_calls"][0]
+            assert tc["function"]["name"] == "terminal"
+            args = json.loads(tc["function"]["arguments"])
+            assert args["command"] == "pytest -v"
+
+            finish_chunks = [c for c in chunks if c["choices"][0].get("finish_reason") == "tool_calls"]
+            assert len(finish_chunks) >= 1, "Expected finish_reason 'tool_calls' in stream"
+        finally:
+            mimoly.get_shared_client = orig_client
+            asyncio.sleep = orig_sleep
+
+    asyncio.run(run_streaming())
 
 
 def test_full_multi_turn_e2e_session_flow() -> None:
@@ -940,6 +995,7 @@ if __name__ == "__main__":
         ("Turn 4: Out-of-Working-Set Tool Validation", test_turn_4_out_of_working_set_tool_validation),
         ("Turn 5: Reasoning Stall Interception", test_turn_5_reasoning_stall_interception),
         ("Turn 6: Conversational Greeting / Question", test_turn_6_conversational_greeting_and_question_pass_through),
+        ("Turn 7: Streaming SSE Interceptor & Tool Call", test_turn_7_streaming_sse_interceptor_and_tool_call),
         ("Multi-Turn Full Session Flow (Turns 1-3)", test_full_multi_turn_e2e_session_flow),
         ("Concurrency Multi-Client Session Isolation", test_concurrency_multi_client_session_isolation),
     ]
