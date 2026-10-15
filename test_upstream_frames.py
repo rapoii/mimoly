@@ -1119,6 +1119,24 @@ def main():
     check("codex steering directive uses OpenAI tool_calls JSON", '"tool_calls"' in dir_codex)
     check("steering directives include available tool hint", "terminal, write_file" in dir_hermes and "terminal, write_file" in dir_claude)
 
+    # Reviewer improvements verification:
+    # 1. Cap tool_names passed to get_steering_directive to [:20]
+    large_tools = [f"t_{i}" for i in range(50)]
+    dir_capped = evaluator.get_steering_directive("hermes", large_tools[:20])
+    check("steering directive respects 20-tool cap", "t_19" in dir_capped and "t_20" not in dir_capped)
+    dir_direct_capped = evaluator.get_steering_directive("hermes", large_tools)
+    check("evaluator get_steering_directive internal cap prunes beyond 20", "t_19" in dir_direct_capped and "t_20" not in dir_direct_capped)
+
+    # 2. Source code checks for reviewer fixes in mimoly.py
+    with open(MIMOLY, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    check("tool_names[:20] passed in streaming loop", "ActionEvaluator.get_steering_directive(agent_framework, tool_names[:20])" in src)
+    check("_stream_started reset on auto-nudge retry", "_stream_started = False\n                                        in_thinking = False" in src)
+    check("base_upstream_query preserved in sse_generator", "base_upstream_query = upstream_payload[\"query\"]" in src)
+    check("base_upstream_query updated on compact retry", "base_upstream_query = _compact" in src)
+    check("no stacked duplicate directives on retry", "upstream_payload[\"query\"] = base_upstream_query + \"\\n\\n\" + directive" in src)
+
     print()
     if FAILURES:
         print(f"RESULT: {len(FAILURES)} FAILED -> {FAILURES}")

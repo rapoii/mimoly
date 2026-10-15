@@ -270,7 +270,7 @@ class ActionEvaluator:
         fw = (framework or "default").lower().strip()
         tool_hint = ""
         if available_tool_names:
-            tool_hint = f"\nAvailable tools: {', '.join(available_tool_names)}"
+            tool_hint = f"\nAvailable tools: {', '.join(available_tool_names[:20])}"
 
         if fw == "claude-code":
             return (

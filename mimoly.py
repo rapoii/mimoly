@@ -3626,6 +3626,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     _stream_started = False  # "started guard": no retry after first content byte
                     _content_started = False # True only when actual delta.content is yielded
                     _last_error_class = None
+                    base_upstream_query = upstream_payload["query"]
                     for attempt in range(_max_attempts):
                         _upstream_was_busy = False
                         # Per-attempt parse state. These are declared before the loop
@@ -3901,6 +3902,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         messages[-4:], tools, framework=agent_framework, is_ultraspeed=is_ultra
                                     )
                                     upstream_payload["query"] = _compact
+                                    base_upstream_query = _compact
                                     print(f"[mimoly] Compacted retry prompt: {len(user_prompt)} -> {len(_compact)} chars")
                                 # "服务器繁忙" means the upstream cluster is overloaded, not
                                 # that we are being rate-limited — so wait longer between tries
@@ -3929,14 +3931,15 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                             for t in _normalize_tools_list(tools)
                                         ]
                                         tool_names = [n for n in tool_names if n]
-                                        directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names)
+                                        directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names[:20])
                                         print(f"[mimoly] Interceptor verdict={verdict.value}, auto-nudging attempt {_empty_retries}/2...")
                                         accumulated_chunks.clear()
+                                        _stream_started = False
                                         in_thinking = False
                                         _saw_reasoning = False
                                         _first_token_at = None
                                         _bump_retry()
-                                        upstream_payload["query"] = upstream_payload["query"] + "\n\n" + directive
+                                        upstream_payload["query"] = base_upstream_query + "\n\n" + directive
                                         upstream_payload["msgId"] = uuid.uuid4().hex
                                         await asyncio.sleep(3.0 * _empty_retries)
                                         continue
@@ -4164,6 +4167,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     # --- NON-STREAMING PATH ---
     accumulated_chunks = []
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    base_upstream_query = upstream_payload["query"]
 
     _acct_lock = _acct.get_lock() if (_acct and hasattr(_acct, "get_lock")) else None
     if _acct_lock:
@@ -4304,11 +4308,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 for t in _normalize_tools_list(tools)
                             ]
                             tool_names = [n for n in tool_names if n]
-                            directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names)
+                            directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names[:20])
                             print(f"[mimoly] [non-stream] Interceptor verdict={verdict.value}, auto-nudging attempt {_empty_retries}/2...")
                             accumulated_chunks.clear()
                             _bump_retry()
-                            upstream_payload["query"] = upstream_payload["query"] + "\n\n" + directive
+                            upstream_payload["query"] = base_upstream_query + "\n\n" + directive
                             upstream_payload["msgId"] = uuid.uuid4().hex
                             await asyncio.sleep(3.0 * _empty_retries)
                             continue

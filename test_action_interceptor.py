@@ -321,6 +321,20 @@ def test_framework_specific_steering_directives():
         assert t in d_codex
 
 
+def test_steering_directive_caps_large_tool_set():
+    """Verify tool names in directive are capped to 20 so 250 tools don't bloat prompt."""
+    evaluator = ActionEvaluator()
+    large_tools = [f"tool_{i}" for i in range(250)]
+    for fw in ("hermes", "claude-code", "codex", "default"):
+        directive = evaluator.get_steering_directive(framework=fw, available_tool_names=large_tools)
+        # First 20 tools should be in the directive
+        for i in range(20):
+            assert f"tool_{i}" in directive, f"Expected tool_{i} in directive for {fw}"
+        # 21st tool and beyond should NOT be in the directive
+        assert "tool_20" not in directive, f"tool_20 should be pruned by 20-tool cap for {fw}"
+        assert "tool_249" not in directive, f"tool_249 should be pruned by 20-tool cap for {fw}"
+
+
 def test_class_and_instance_invocation():
     msgs = [{"role": "user", "content": "Bikin file dummy.txt"}]
 
@@ -417,6 +431,7 @@ if __name__ == "__main__":
         test_tool_calls_present_always_pass,
         test_tools_not_present_always_pass,
         test_framework_specific_steering_directives,
+        test_steering_directive_caps_large_tool_set,
         test_class_and_instance_invocation,
         test_concurrency_thread_safety,
         test_robustness_malformed_messages,
