@@ -694,8 +694,11 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(client.responses[0].closed)
                 self.assertFalse(self.account.get_lock().locked())
 
-    async def test_captured_terminal_call_followed_by_upstream_error_is_not_execution(self):
-        # Exact synthetic tool-call payload observed after the bridge clarification.
+    async def test_captured_terminal_call_followed_by_upstream_error_is_returned_not_executed(self):
+        # Contract change 2026-10-16 (XiaomiMiMo/MiMo#103): a fully-buffered
+        # valid tool call survives a trailing busy error frame. The proxy
+        # RETURNS the call for the client to execute -- it never executes
+        # inline (no stop answer, no execution output) and never 502s.
         self.body['tools'] = [{'type': 'function', 'function': {
             'name': 'terminal', 'parameters': {'type': 'object',
             'properties': {'command': {'type': 'string'}}, 'required': ['command']}}}]
@@ -709,22 +712,74 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
                 result = await m.handle_chat_completion(self.body, request())
                 output = await self.collect(result)
                 if not streaming:
-                    self.assertEqual(result.status_code, 502)
-                self.assertIn('upstream_error', output)
-                self.assertNotIn('tool_calls', output)
-                self.assertNotIn('print(19+23)', output)
+                    self.assertEqual(result.status_code, 200)
+                    data = json.loads(result.body)
+                    self.assertEqual(data['choices'][0]['finish_reason'], 'tool_calls')
+                    msg = data['choices'][0]['message']
+                    self.assertIsNone(msg['content'])
+                    fn = msg['tool_calls'][0]['function']
+                    self.assertEqual(fn['name'], 'terminal')
+                    self.assertEqual(json.loads(fn['arguments']),
+                                     {'command': 'python -c "print(19+23)"'})
+                else:
+                    self.assertIn('tool_calls', output)
+                    self.assertNotIn('upstream_error', output)
+                self.assertNotIn('服务器繁忙', output)
                 self.assertEqual(len(client.queries), 1)
                 self.assertTrue(client.responses[0].closed)
 
-    async def test_error_after_buffered_tool_never_returns_tool(self):
+    async def test_error_after_buffered_valid_tool_returns_tool(self):
+        # Contract change 2026-10-16: a valid buffered tool call is
+        # preserved across a trailing error frame, not discarded.
         for streaming in (False, True):
             with self.subTest(stream=streaming):
                 self.body['stream'] = streaming
-                self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]},
+                client = self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]},
                                   {'error': 'PRIVATE_SENTINEL'}, 1.0])
-                output = await self.collect(await m.handle_chat_completion(self.body, request()))
-                self.assertIn('upstream_error', output)
-                self.assertNotIn('tool_calls', output)
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                self.assertIn('tool_calls', output)
+                self.assertNotIn('upstream_error', output)
+                self.assertNotIn('PRIVATE_SENTINEL', output)
+                self.assertEqual(len(client.queries), 1)
+
+    async def test_native_tool_then_busy_error_returns_tool_in_both_modes(self):
+        # Live 2026-10-16 (XiaomiMiMo/MiMo#103): a single toolCalls frame whose
+        # arguments carry a trailing '{}' suffix, followed by event:error with
+        # 服务器繁忙. A fully-buffered valid tool call survives the trailing
+        # error frame: tool_calls emitted, no 502, no error-text leak, 1 attempt.
+        self.body['tools'] = [{'type': 'function', 'function': {
+            'name': 'terminal', 'parameters': {'type': 'object',
+            'properties': {'command': {'type': 'string'}}, 'required': ['command']}}}]
+        script = ['event: message',
+                  {'messageType': 'tool', 'toolCalls': [{
+                      'name': 'terminal',
+                      'arguments': '{"command": "python -c \\"print(19+23)\\""}{}'}]},
+                  'event: error',
+                  {'type': 'text', 'content': '服务器繁忙，请稍后再试'}, '']
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.wire_client(script)
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                if not streaming:
+                    self.assertEqual(result.status_code, 200)
+                    data = json.loads(result.body)
+                    self.assertEqual(data['choices'][0]['finish_reason'], 'tool_calls')
+                    fn = data['choices'][0]['message']['tool_calls'][0]['function']
+                    self.assertEqual(fn['name'], 'terminal')
+                    self.assertEqual(json.loads(fn['arguments']),
+                                     {'command': 'python -c "print(19+23)"'})
+                else:
+                    self.assertIn('tool_calls', output)
+                    self.assertIn('terminal', output)
+                    self.assertIn('print(19+23)', output)
+                    self.assertNotIn('upstream_error', output)
+                    self.assertNotIn('Stream connection error', output)
+                self.assertNotIn('服务器繁忙', output)
+                self.assertEqual(len(client.queries), 1)
+                self.assertTrue(client.responses[0].closed)
 
     async def test_done_substring_in_json_is_not_a_terminator(self):
         self.body.pop('tools')
