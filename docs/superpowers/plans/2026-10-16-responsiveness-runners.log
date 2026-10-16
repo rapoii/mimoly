@@ -1,0 +1,451 @@
+
+=== test_upstream_frames.py ===
+[unit] upstream frame normalizer
+  PASS  normalize_upstream_frame exists
+  PASS  dict frame passes through
+  PASS  list frame -> None
+  PASS  str frame -> None
+  PASS  int frame -> None
+  PASS  None frame -> None
+[unit] captured upstream frames (regression set)
+  PASS  all captured frames classified without raising
+[integration] POST /v1/chat/completions with tools
+  SKIP  live integration test (opt-in via --integration or RUN_INTEGRATION=1)
+[unit] tool observation quote sanitisation
+  PASS  raw JSON observation preserved
+  PASS  observation still present
+[unit] URL masking for upstream (webSearch injection guard)
+  PASS  mask_urls_for_upstream exists
+  PASS  literal URL removed
+  PASS  reassembles to original URL
+  PASS  scheme kept intact
+  PASS  plain text untouched
+  PASS  non-http text untouched
+[unit] build_agent_prompt masks user URLs
+  PASS  user URL masked in built prompt
+  PASS  masked URL still readable
+[unit] coerce_tool_args repairs stringified array/object params
+  PASS  coerce_tool_args exists
+  PASS  stringified array -> list
+  PASS  non-string param untouched
+  PASS  describe names string -> list
+  PASS  real list untouched
+  PASS  bare string wrapped into list
+  PASS  unknown tool untouched
+  PASS  calls[].tool renamed to name
+[integration] smart_extract_tool_calls repairs stringified array param
+  PASS  extracted queries is a list
+[unit] stats tracking
+  PASS  _STATS exists
+  PASS  _START_TIME exists
+  PASS  _STATS keys complete
+  PASS  coerced_args incremented
+  PASS  coerced_args unchanged for valid args
+[unit] coerce_tool_args proactive
+  PASS  number coerced from string
+  PASS  boolean from '1'
+  PASS  boolean from '0'
+  PASS  boolean from int 1
+  PASS  nested object scalar coerced
+  PASS  'null' string -> None
+  PASS  validate_tool_args exists
+  PASS  validate returns dict
+  PASS  validate flags type mismatch
+  PASS  validate flags missing required
+  PASS  validate passes good args
+[mimoly] schema mismatch for 't': ["field 'ratio' expected number, got str"]
+  PASS  invalid_args counted after failed coercion
+  PASS  coercible arg not counted invalid
+[unit] token usage tracking
+  PASS  token keys present
+  PASS  prompt_tokens accumulated
+  PASS  completion_tokens accumulated
+  PASS  total_tokens accumulated
+  PASS  per-model tokens recorded
+  PASS  reasoning_tokens accumulated
+  PASS  per-model accumulates across calls
+  PASS  empty usage is safe
+[unit] dashboard endpoint
+  PASS  _DASHBOARD_HTML defined
+  PASS  dashboard HTML non-trivial
+  PASS  dashboard fetches /v1/stats
+  PASS  dashboard route registered
+[unit] analytics tracking
+  PASS  analytics keys present
+  PASS  latency helper exists
+  PASS  finish_reason helper exists
+  PASS  timeline helper exists
+  PASS  latency count
+  PASS  latency sum
+  PASS  latency min
+  PASS  latency max
+  PASS  finish_reasons counted
+  PASS  timeline single minute bucket
+  PASS  timeline requests accumulated
+  PASS  timeline tokens accumulated
+  PASS  timeline tool_calls accumulated
+  PASS  timeline errors accumulated
+  PASS  usage feeds timeline tokens
+  PASS  stats exposes finish_reasons
+  PASS  stats exposes latency summary
+  PASS  stats exposes ttft summary
+  PASS  stats exposes timeline list
+[unit] dashboard neobrutalism + charts
+  PASS  dashboard loads Chart.js
+  PASS  dashboard has timeline canvas
+  PASS  dashboard has finish-reasons chart
+  PASS  dashboard has token-split chart
+  PASS  dashboard uses neobrutalism hard shadow
+  PASS  dashboard has thick ink borders
+  PASS  dashboard offline fallback
+[unit] per-request request log
+  PASS  _REQUEST_LOG exists
+  PASS  _new_request helper exists
+  PASS  _finish_request helper exists
+  PASS  _clip helper exists
+  PASS  _last_user_text helper exists
+  PASS  _clip truncates long text
+  PASS  _clip keeps short text
+  PASS  _last_user_text picks last user msg
+  PASS  _last_user_text handles multimodal
+  PASS  _last_user_text empty when none
+  PASS  record has id + ts
+  PASS  record stored in ring buffer
+  PASS  record keeps input
+  PASS  record defaults output empty
+  PASS  finish sets output
+  PASS  finish sets finish_reason
+  PASS  finish sets latency
+  PASS  finish sets tokens
+  PASS  finish sets tools_called
+  PASS  ring buffer bounded to <=50
+  PASS  stats exposes recent_requests list
+  PASS  dashboard has recent-requests panel
+[unit] streaming cancel safety-net
+  PASS  stream generator has finally safety-net
+  PASS  safety-net records 'cancelled'
+  PASS  safety-net guarded by finish_reason check
+  PASS  _finish_request tolerates None rec
+  PASS  _clip bounds huge output
+[unit] dynamic & portable tool path normalization
+  PASS  relative path preserved without workspace injection
+  PASS  relative path anchored to custom workspace
+  PASS  absolute workspace path not double-prefixed
+  PASS  zero hardcoded 'Hermes Workspace' in source
+  PASS  zero hardcoded 'D:/Software' in source
+  PASS  zero hardcoded 'D:\Software' in source
+  PASS  zero hardcoded 'spectra' in source
+[unit] tool argument auto-healing & schema drift recovery
+  PASS  execute_code alias healed command->code
+  PASS  write_file alias healed filepath & text
+  PASS  write_file recovers top-level json fields into content
+  PASS  tool_call wraps dict into list for calls
+  PASS  browser_evaluate heals script->expression
+  PASS  unclosed tool_call xml recovered
+[unit] enhanced error recovery & upstream reliability
+  PASS  markdown json inside tool_call stripped and parsed
+  PASS  execute_code empty args recovers python code block
+  PASS  path single list unwrapped to string
+  PASS  search_files missing pattern defaults safely
+  PASS  is_upstream_busy helper exists
+  PASS  is_upstream_busy detects '服务器繁忙'
+  PASS  is_upstream_busy detects '系统繁忙'
+  PASS  is_upstream_busy detects '服务繁忙'
+  PASS  is_upstream_busy detects '请稍后再试'
+  PASS  is_upstream_busy detects '请稍后重试'
+[unit] smart context & memory retention
+  PASS  rich system prompt preserved (not dropped when >1500 chars)
+  PASS  assistant action preserves tool arguments
+  PASS  sanitize_observation retains code up to 8000 chars
+  PASS  history retains 16 recent turns
+[unit] model matrix & dynamic discovery
+  PASS  MODEL_ALIASES maps ultraspeed
+  PASS  MODEL_CATALOG contains ultraspeed
+  PASS  sync_upstream_models helper exists
+  PASS  sync_upstream_models registers new model into catalog
+  PASS  sync_upstream_models registers new model into aliases
+[unit] vision & multimodal upload pipeline
+  PASS  extract_images_from_messages helper exists
+  PASS  extracted base64 image
+  PASS  upload_media_to_mimo helper exists
+  PASS  prepare_multimedias_for_request helper exists
+[unit] anthropic messages API compatibility
+  PASS  convert_anthropic_request helper exists
+  PASS  convert_openai_to_anthropic_response helper exists
+  PASS  anthropic model mapped
+  PASS  system message injected
+  PASS  anthropic tool converted to openai function
+  PASS  anthropic response structure
+  PASS  anthropic has thinking and tool_use blocks
+  PASS  get_upstream_endpoints helper exists
+  PASS  standard model uses root open-apis
+  PASS  ultraspeed routes to /fastchat cluster
+[unit] TTS & ASR audio capabilities
+  PASS  VOICE_MAP exists
+  PASS  VOICE_MAP maps alloy
+  PASS  VOICE_MAP maps echo
+  PASS  VOICE_MAP preserves native voices
+[unit] harvester cookie health
+  PASS  check_cookie_health helper exists
+[unit] openai responses API compatibility
+  PASS  convert_responses_request_to_chat helper exists
+  PASS  convert_chat_to_responses_output helper exists
+  PASS  responses instructions converted to system role
+  PASS  responses string input converted to user message
+  PASS  responses tool converted to function
+  PASS  responses output object is response
+  PASS  responses output has items list
+  PASS  responses output includes message and function_call
+[unit] reliability wiring
+  PASS  mimoly_reliability importable
+  PASS  shared client helper exists
+  PASS  account pool helper exists
+  PASS  rate limiter wired
+  PASS  admission wired
+  PASS  response cache wired
+  PASS  client-key helper exists
+  PASS  retry counter wired
+  PASS  RateLimiter in helper
+  PASS  classify_status maps 429
+  PASS  classify_status maps 401
+  PASS  should_rotate_key(auth) true
+  PASS  clarify question normalized to questions array
+  PASS  write_file code coerced to content
+[unit] self-healing parser & argument recovery (Task 4)
+  PASS  has _recover_empty_write_file helper
+  PASS  _recover_empty_write_file populates content from markdown
+  PASS  _recover_empty_write_file handles top-level properties
+  PASS  write_file missing content -> recovered from markdown code block
+  PASS  execute_code with empty {} -> recovered from reasoning python block
+  PASS  xml with unescaped quotes and glitchy tags parsed without crash
+  PASS  tool invocation for an unselected tool (present in full available_tools) extracted
+  PASS  unselected tool arguments coerced against catalogue schema
+  PASS  unselected tool validates cleanly with zero schema issues
+  PASS  dual-index dictionary catalogue validates unselected tool cleanly
+[unit] Tool-RAG & Strict Action Interceptor Pipeline Integration (Task 5)
+  PASS  build_agent_prompt preserves anchor tools
+  PASS  build_agent_prompt retrieves relevant dynamic tool
+  PASS  build_agent_prompt prunes irrelevant tools from working set
+  PASS  build_agent_prompt includes schema parameter definitions
+  PASS  build_agent_prompt includes few-shot usage example
+  PASS  evaluator intercepts in-flight prose evasion with NUDGE_PROSE
+  PASS  evaluator intercepts reasoning stall with NUDGE_REASONING
+  PASS  evaluator passes conversational greeting without intercept
+  PASS  hermes steering directive uses XML <tool_call>
+  PASS  claude-code steering directive uses JSON tool_use
+  PASS  codex steering directive uses OpenAI tool_calls JSON
+  PASS  steering directives include available tool hint
+  PASS  steering directive respects 20-tool cap
+  PASS  evaluator get_steering_directive internal cap prunes beyond 20
+  PASS  tool_names[:20] passed in streaming loop
+  PASS  emission guard blocks retry after visible output
+  PASS  base_upstream_query preserved in sse_generator
+  PASS  base_upstream_query updated on compact retry
+  PASS  no stacked duplicate directives on retry
+
+RESULT: all checks passed
+EXIT=0
+
+=== test_action_interceptor.py ===
+  PASS  test_action_required_when_previous_turn_is_tool
+  PASS  test_conversational_pass_through
+  PASS  test_conceptual_query_pass_through
+  PASS  test_mandatory_triggers_indonesian_verbs
+  PASS  test_mandatory_triggers_english_verbs
+  PASS  test_reasoning_only_stall
+  PASS  test_prose_evasion_promissory_phrases
+  PASS  test_legitimate_final_completion
+  PASS  test_tool_calls_present_always_pass
+  PASS  test_tools_not_present_always_pass
+  PASS  test_framework_specific_steering_directives
+  PASS  test_steering_directive_caps_large_tool_set
+  PASS  test_class_and_instance_invocation
+  PASS  test_concurrency_thread_safety
+  PASS  test_robustness_malformed_messages
+
+RESULT: 15 passed, 0 failed
+EXIT=0
+
+=== test_tool_rag.py ===
+  PASS  test_working_set_preserves_anchor_tools
+  PASS  test_working_set_retains_recent_tools
+  PASS  test_bm25_ranking_precision
+  PASS  test_empty_and_fallback
+
+[latency benchmark] 300 tools: Min=0.670ms, Median=0.682ms, Avg=0.685ms
+  PASS  test_ranking_latency_benchmark_300_tools
+  PASS  test_class_level_select_working_set
+  PASS  test_malformed_and_nameless_tool_filtering
+  PASS  test_stable_chronological_retention_order
+  PASS  test_concurrency_thread_safety
+  PASS  test_render_adaptive_tool_catalogue_full_schema
+  PASS  test_render_adaptive_tool_catalogue_frameworks
+  PASS  test_budget_pruning_description_truncation
+  PASS  test_budget_pruning_tool_description_truncation
+  PASS  test_render_adaptive_catalogue_flexibility_and_json_literals
+  PASS  test_budget_pruning_dynamic_throttling_preserves_anchors
+  PASS  test_render_adaptive_catalogue_edge_cases
+
+[render latency] 15 tools with pruning: Min=0.665ms, Median=0.675ms, Avg=0.688ms
+  PASS  test_render_latency_benchmark
+
+RESULT: 17 passed, 0 failed
+EXIT=0
+
+=== test_reliability.py ===
+[unit] error taxonomy
+  PASS  classify_status exists
+  PASS  429 -> rate_limit
+  PASS  401 -> auth
+  PASS  403 -> auth
+  PASS  500 -> server_error
+  PASS  503 -> server_error
+  PASS  400 -> client_error
+  PASS  200 -> none/None
+  PASS  is_retryable exists
+  PASS  rate_limit retryable
+  PASS  network retryable
+  PASS  server_error retryable
+  PASS  auth NOT retryable on same key
+  PASS  client_error NOT retryable
+  PASS  should_rotate_key exists
+  PASS  auth rotates key
+  PASS  rate_limit rotates key
+  PASS  server_error does NOT rotate
+  PASS  network does NOT rotate
+[unit] retry budget
+  PASS  RetryBudget exists
+  PASS  first retry allowed
+  PASS  third attempt (attempt=2) not retried
+  PASS  delay within [0, base]
+  PASS  full jitter produces varying delays
+  PASS  expired budget refuses retry
+  PASS  expired budget delay is 0
+[unit] account pool & circuit breaker
+  PASS  AccountPool exists
+  PASS  pool loads 3 accounts
+  PASS  healthy_count starts at 3
+  PASS  acquire returns an account
+  PASS  least-inflight spreads load
+  PASS  success keeps account healthy
+  PASS  auth failure parks key
+  PASS  auth failure sets cooldown
+  PASS  parked key not acquired again
+  PASS  breaker still closed below threshold
+  PASS  breaker still closed below threshold
+  PASS  breaker opens after max_failures
+  PASS  cooldown is exponential-capped
+  PASS  snapshot is a list of dicts
+  PASS  snapshot exposes health fields
+[unit] admission control
+  PASS  AdmissionController exists
+  PASS  first acquire ok
+  PASS  second acquire ok
+  PASS  third acquire rejected (fast 503)
+  PASS  rejected counter increments
+  PASS  release frees a slot
+  PASS  in_flight returns to 0
+  PASS  release never goes negative
+[unit] exact TTL cache
+  PASS  TTLCache exists
+  PASS  make_key deterministic
+  PASS  cache hit
+  PASS  maxsize enforced
+  PASS  make_key ignores volatile keys
+  PASS  expired entry misses
+[unit] rate limiter
+  PASS  RateLimiter exists
+  PASS  first three allowed
+  PASS  fourth rejected
+  PASS  different key unaffected
+  PASS  rejected counter increments
+  PASS  retry_after positive
+  PASS  limit=0 means unlimited
+  PASS  first allowed
+  PASS  second blocked in window
+  PASS  allowed again after window
+
+RESULT: all checks passed
+EXIT=0
+
+=== test_rag_agent_e2e.py ===
+======================================================================
+Mimoly E2E Multi-Turn Simulation with 250 Tools
+======================================================================
+
+  PASS  Catalog Validity (250 Tools) (1.2ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+  PASS  Turn 1: Action Imperative & A11 Healing (39.3ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=4, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "attempt_2_ms": 0.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 0.0}
+  PASS  Turn 2: Follow-up & Prose Interception Retry (18.5ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=7, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+  PASS  Turn 3: Final Completion Pass-Through (36.6ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+  PASS  Turn 4: Out-of-Working-Set Tool Validation (24.5ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_REASONING, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "attempt_2_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+  PASS  Turn 5: Reasoning Stall Interception (16.2ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+  PASS  Turn 6: Conversational Greeting / Question (12.9ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 15.0, "attempt_2_ms": 31.0, "first_emission_ms": 31.0, "total_ms": 31.0, "upstream_first_frame_ms": 15.0}
+  PASS  Turn 7: Streaming SSE Interceptor & Tool Call (41.3ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=4, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 16.0, "attempt_2_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=7, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+  PASS  Multi-Turn Full Session Flow (Turns 1-3) (36.2ms)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=250, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+  PASS  Concurrency Multi-Client Session Isolation (143.6ms)
+
+----------------------------------------------------------------------
+RESULTS: 10 passed, 0 failed
+----------------------------------------------------------------------
+EXIT=0

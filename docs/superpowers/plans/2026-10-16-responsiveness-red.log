@@ -1,0 +1,573 @@
+test_cancel_midstream_closes_read_and_releases_resources (test_agent_responsiveness.LifecycleTests.test_cancel_midstream_closes_read_and_releases_resources) ... ok
+test_cancel_queued_releases_account_not_foreign_lock (test_agent_responsiveness.LifecycleTests.test_cancel_queued_releases_account_not_foreign_lock) ... FAIL
+test_compact_retry_preserves_goal_developer_and_observations (test_agent_responsiveness.LifecycleTests.test_compact_retry_preserves_goal_developer_and_observations) ... FAIL
+test_deadline_includes_lock_wait (test_agent_responsiveness.LifecycleTests.test_deadline_includes_lock_wait) ... ERROR
+test_deadline_includes_preprocessing (test_agent_responsiveness.LifecycleTests.test_deadline_includes_preprocessing) ... ERROR
+test_explicit_stream_close_releases_resources (test_agent_responsiveness.LifecycleTests.test_explicit_stream_close_releases_resources) ... FAIL
+test_global_deadline_bounds_busy_and_nudge_backoff (test_agent_responsiveness.LifecycleTests.test_global_deadline_bounds_busy_and_nudge_backoff) ... ERROR
+test_idle_heartbeat_does_not_cancel_late_frame (test_agent_responsiveness.LifecycleTests.test_idle_heartbeat_does_not_cancel_late_frame) ... FAIL
+test_partial_failed_attempt_does_not_contaminate_retry (test_agent_responsiveness.LifecycleTests.test_partial_failed_attempt_does_not_contaminate_retry) ... FAIL
+test_programming_error_is_not_retried (test_agent_responsiveness.LifecycleTests.test_programming_error_is_not_retried) ... FAIL
+test_stream_deadline_cancels_pending_read (test_agent_responsiveness.LifecycleTests.test_stream_deadline_cancels_pending_read) ... ERROR
+test_streamed_answer_is_not_retried (test_agent_responsiveness.LifecycleTests.test_streamed_answer_is_not_retried) ... ok
+test_streamed_reasoning_is_not_mixed_with_retry (test_agent_responsiveness.LifecycleTests.test_streamed_reasoning_is_not_mixed_with_retry) ... ok
+test_cache_fingerprints_description_and_schema (test_agent_responsiveness.ProtocolTests.test_cache_fingerprints_description_and_schema) ... FAIL
+test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) ... 
+  test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Write a poem about rain') ... FAIL
+  test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Hitung 2 + 2') ... FAIL
+  test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Read the text below; do not use tools') ... FAIL
+  test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Create an implementation plan only; do not execute') ... FAIL
+  test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Create a file') ... FAIL
+test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) ... 
+  test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) (tools=True) ... FAIL
+  test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) (tools=False) ... FAIL
+test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) ... 
+  test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='{"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a.py", "offset": 51}}') ... FAIL
+  test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='<tool_call>{"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a.py", "offset": 51}}</tool_call>') ... FAIL
+  test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='```json\n{"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a.py", "offset": 51}}\n```') ... FAIL
+  test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='{"tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\\"path\\":\\"a.py\\",\\"offset\\":51}"}}]}') ... FAIL
+  test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='<tool_call>{"tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\\"path\\":\\"a.py\\",\\"offset\\":51}"}}]}</tool_call>') ... FAIL
+  test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='```json\n{"tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\\"path\\":\\"a.py\\",\\"offset\\":51}"}}]}\n```') ... FAIL
+test_instruction_roles_remain_distinguishable (test_agent_responsiveness.ProtocolTests.test_instruction_roles_remain_distinguishable) ... FAIL
+test_multiple_json_calls_preserved (test_agent_responsiveness.ProtocolTests.test_multiple_json_calls_preserved) ... ok
+test_read_pagination_preserved (test_agent_responsiveness.ProtocolTests.test_read_pagination_preserved) ... FAIL
+test_retry_backoff_never_exceeds_remaining_or_final_attempt (test_agent_responsiveness.ProtocolTests.test_retry_backoff_never_exceeds_remaining_or_final_attempt) ... FAIL
+test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) ... 
+  test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) (text='<tool_call><function=unknown>{"path":"a.py"}</function></tool_call>') ... FAIL
+  test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) (text='For example:\n```xml\n<tool_call><function=read_file>{"path":"a.py"}</function></tool_call>\n```') ... FAIL
+  test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) (text='Example usage:\n```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```') ... FAIL
+
+======================================================================
+ERROR: test_deadline_includes_lock_wait (test_agent_responsiveness.LifecycleTests.test_deadline_includes_lock_wait)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 3423, in handle_chat_completion
+    result = await _handle_chat_completion_inner(body, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 4236, in _handle_chat_completion_inner
+    await _acct_lock.acquire()
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\locks.py", line 113, in acquire
+    await fut
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 221, in test_deadline_includes_lock_wait
+    response = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), timeout=0.15)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 519, in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+======================================================================
+ERROR: test_deadline_includes_preprocessing (test_agent_responsiveness.LifecycleTests.test_deadline_includes_preprocessing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 3423, in handle_chat_completion
+    result = await _handle_chat_completion_inner(body, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 4252, in _handle_chat_completion_inner
+    async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpx\_client.py", line 1583, in stream
+    response = await self.send(
+               ^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
+    raise exc
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_async\connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_backends\auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\httpcore\_backends\anyio.py", line 115, in connect_tcp
+    stream: anyio.abc.ByteStream = await anyio.connect_tcp(
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\anyio\_core\_sockets.py", line 252, in connect_tcp
+    async with create_task_group() as tg:
+               ^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 851, in __aexit__
+    raise exc_val
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\anyio\_core\_sockets.py", line 257, in connect_tcp
+    await event.wait()
+  File "D:\Software\Hermes Workspace\projects\mimoly\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1936, in wait
+    await self._event.wait()
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\locks.py", line 212, in wait
+    await fut
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 233, in test_deadline_includes_preprocessing
+    response = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), timeout=0.15)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 519, in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+======================================================================
+ERROR: test_global_deadline_bounds_busy_and_nudge_backoff (test_agent_responsiveness.LifecycleTests.test_global_deadline_bounds_busy_and_nudge_backoff)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 3423, in handle_chat_completion
+    result = await _handle_chat_completion_inner(body, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 4370, in _handle_chat_completion_inner
+    await asyncio.sleep(_busy_sleep_ns)
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 665, in sleep
+    return await future
+           ^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 244, in test_global_deadline_bounds_busy_and_nudge_backoff
+    response = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), timeout=0.2)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 519, in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+======================================================================
+ERROR: test_stream_deadline_cancels_pending_read (test_agent_responsiveness.LifecycleTests.test_stream_deadline_cancels_pending_read)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 156, in collect
+    async for chunk in response.body_iterator:
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 3444, in _admitting_iter
+    async for _chunk in _inner_iter:
+  File "C:\Users\Rafi\AppData\Local\hermes\cache\scratch\mimoly-responsiveness-red\mimoly.py", line 3755, in sse_generator
+    line = await asyncio.wait_for(line_iter.__anext__(), timeout=10.0)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 37, in aiter_lines
+    await asyncio.sleep(item)
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 665, in sleep
+    return await future
+           ^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 254, in test_stream_deadline_cancels_pending_read
+    output = await asyncio.wait_for(self.collect(response), timeout=0.2)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 519, in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+======================================================================
+FAIL: test_cancel_queued_releases_account_not_foreign_lock (test_agent_responsiveness.LifecycleTests.test_cancel_queued_releases_account_not_foreign_lock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 290, in test_cancel_queued_releases_account_not_foreign_lock
+    self.assertEqual(len(self.releases), 1)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_compact_retry_preserves_goal_developer_and_observations (test_agent_responsiveness.LifecycleTests.test_compact_retry_preserves_goal_developer_and_observations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 276, in test_compact_retry_preserves_goal_developer_and_observations
+    self.assertIn(sentinel, client.queries[1])
+AssertionError: 'DEVELOPER_SENTINEL' not found in 'Instruksi Sistem:\nSYSTEM_SENTINEL\n\nKamu adalah asisten AI dengan kemampuan tool calling. Gunakan format Qwen XML native.\nBerikut tools yang tersedia:\n- read_file: Read file\n  Parameters:\n    - path (string, required)\n    - offset (integer, optional)\n    - limit (integer, optional)\n  Required: path\n  Usage: <tool_call><function=read_file><parameter=path>path/to/file</parameter></function></tool_call>\n\nCara memanggil tool (pakai SATU format ini, jangan format lain):\n<tool_call>\n<function=nama_tool>\n<parameter=param1>nilai</parameter>\n<parameter=param2>nilai</parameter>\n</function>\n</tool_call>\n\nAtau jika tool butuh argumen kompleks:\n<tool_call>\n<function=nama_tool>\n{\n  "param1": "nilai",\n  "param2": "nilai"\n}\n</function>\n</tool_call>\n\nPENTING:\n- Panggil SATU tool per blok <tool_call>.\n- Selalu tutup dengan </function></tool_call>.\n- Jangan ulangi tool call yang sama tanpa membaca hasil observasi dulu.\n- Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga.\n\nRiwayat percakapan:\n[User]: Read a.py GOAL_SENTINEL\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n[Hasil read_file]: RECENT_OBSERVATION \'exact\'\n\nTugas utama user: Read a.py GOAL_SENTINEL\nStatus terkini: Hasil eksekusi tool terbaru ada di riwayat di atas.\n- Jika tugas utama sudah terjawab/selesai secara lengkap, berikan jawaban akhir yang jelas dan informatif kepada user sekarang.\n- Jika tugas masih membutuhkan langkah berikutnya atau tool lanjutan (misal melihat isi skill, memanggil MCP, membaca file, delegasi task), panggil tool berikutnya sekarang.\n- JANGAN panggil tool yang sama dengan argumen yang sama dua kali. Kalau hasilnya sudah ada di riwayat/ledger, pakai hasil itu dan lanjut ke langkah berikutnya.\n\n[ACTION REQUIRED: EXECUTE TOOL NOW]\nDo not explain, converse, or promise what you will do. Execute the necessary tool call immediately using XML:\n<tool_call>\n<function=tool_name>\n<parameter=param_name>value</parameter>\n</function>\n</tool_call>\nDo not talk about taking action. Output the <tool_call> block directly now.\nAvailable tools: read_file'
+
+======================================================================
+FAIL: test_explicit_stream_close_releases_resources (test_agent_responsiveness.LifecycleTests.test_explicit_stream_close_releases_resources)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 300, in test_explicit_stream_close_releases_resources
+    self.assertFalse(self.account.get_lock().locked())
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_idle_heartbeat_does_not_cancel_late_frame (test_agent_responsiveness.LifecycleTests.test_idle_heartbeat_does_not_cancel_late_frame)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 172, in test_idle_heartbeat_does_not_cancel_late_frame
+    self.assertIn('LATE_ANSWER', output)
+AssertionError: 'LATE_ANSWER' not found in 'data: {"id": "chatcmpl-173919e5353d", "object": "chat.completion.chunk", "created": 1792135093, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\n: keep-alive\n\ndata: {"id": "chatcmpl-173919e5353d", "object": "chat.completion.chunk", "created": 1792135093, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-173919e5353d", "object": "chat.completion.chunk", "created": 1792135093, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_partial_failed_attempt_does_not_contaminate_retry (test_agent_responsiveness.LifecycleTests.test_partial_failed_attempt_does_not_contaminate_retry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 182, in test_partial_failed_attempt_does_not_contaminate_retry
+    self.assertNotIn('STALE_PARTIAL', output)
+AssertionError: 'STALE_PARTIAL' unexpectedly found in '{"id":"chatcmpl-9cf7ea7c83f8","object":"chat.completion","created":1792135093,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":"STALE_PARTIALCLEAN_ANSWER"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_programming_error_is_not_retried (test_agent_responsiveness.LifecycleTests.test_programming_error_is_not_retried)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 211, in test_programming_error_is_not_retried
+    self.assertIn('BUG', output)
+AssertionError: 'BUG' not found in '{"id":"chatcmpl-8df0d1e9ccd6","object":"chat.completion","created":1792135093,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":"SHOULD_NOT_RUN"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_cache_fingerprints_description_and_schema (test_agent_responsiveness.ProtocolTests.test_cache_fingerprints_description_and_schema)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 117, in test_cache_fingerprints_description_and_schema
+    self.assertIn('omega', rag._get_or_build_index(b).postings)
+AssertionError: 'omega' not found in {'read': [(0, 2)], 'file': [(0, 2)], 'alpha': [(0, 1)], 'path': [(0, 1)], 'offset': [(0, 1)], 'limit': [(0, 1)]}
+
+======================================================================
+FAIL: test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Write a poem about rain')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 108, in test_conservative_interceptor
+    self.assertEqual(ActionEvaluator.evaluate_turn([{'role': 'user', 'content': goal}], True, reply), Verdict.PASS)
+AssertionError: <Verdict.NUDGE_PROSE: 'NUDGE_PROSE'> != <Verdict.PASS: 'PASS'>
+
+======================================================================
+FAIL: test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Hitung 2 + 2')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 108, in test_conservative_interceptor
+    self.assertEqual(ActionEvaluator.evaluate_turn([{'role': 'user', 'content': goal}], True, reply), Verdict.PASS)
+AssertionError: <Verdict.NUDGE_PROSE: 'NUDGE_PROSE'> != <Verdict.PASS: 'PASS'>
+
+======================================================================
+FAIL: test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Read the text below; do not use tools')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 108, in test_conservative_interceptor
+    self.assertEqual(ActionEvaluator.evaluate_turn([{'role': 'user', 'content': goal}], True, reply), Verdict.PASS)
+AssertionError: <Verdict.NUDGE_PROSE: 'NUDGE_PROSE'> != <Verdict.PASS: 'PASS'>
+
+======================================================================
+FAIL: test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Create an implementation plan only; do not execute')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 108, in test_conservative_interceptor
+    self.assertEqual(ActionEvaluator.evaluate_turn([{'role': 'user', 'content': goal}], True, reply), Verdict.PASS)
+AssertionError: <Verdict.NUDGE_PROSE: 'NUDGE_PROSE'> != <Verdict.PASS: 'PASS'>
+
+======================================================================
+FAIL: test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) (goal='Create a file')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 108, in test_conservative_interceptor
+    self.assertEqual(ActionEvaluator.evaluate_turn([{'role': 'user', 'content': goal}], True, reply), Verdict.PASS)
+AssertionError: <Verdict.NUDGE_PROSE: 'NUDGE_PROSE'> != <Verdict.PASS: 'PASS'>
+
+======================================================================
+FAIL: test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) (tools=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 62, in test_developer_goal_and_raw_observation_preserved
+    self.assertIn(text, prompt)
+AssertionError: 'DEVELOPER_SENTINEL' not found in 'Instruksi Sistem:\nSYSTEM_SENTINEL\n\nKamu adalah asisten AI dengan kemampuan tool calling. Gunakan format Qwen XML native.\nBerikut tools yang tersedia:\n- read_file: Read file\n  Parameters:\n    - path (string, required)\n    - offset (integer, optional)\n    - limit (integer, optional)\n  Required: path\n  Usage: <tool_call><function=read_file><parameter=path>path/to/file</parameter></function></tool_call>\n\nCara memanggil tool (pakai SATU format ini, jangan format lain):\n<tool_call>\n<function=nama_tool>\n<parameter=param1>nilai</parameter>\n<parameter=param2>nilai</parameter>\n</function>\n</tool_call>\n\nAtau jika tool butuh argumen kompleks:\n<tool_call>\n<function=nama_tool>\n{\n  "param1": "nilai",\n  "param2": "nilai"\n}\n</function>\n</tool_call>\n\nPENTING:\n- Panggil SATU tool per blok <tool_call>.\n- Selalu tutup dengan </function></tool_call>.\n- Jangan ulangi tool call yang sama tanpa membaca hasil observasi dulu.\n- Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga.\n\nRiwayat percakapan:\n[User]: GOAL_SENTINEL\n[Hasil read_file]: {\'old_string\': \'say \\\'hello\\\'\', \'code\': \'x = \\\'value\\\'\'}\n[Hasil read_file]: {\'old_string\': \'say \\\'hello\\\'\', \'code\': \'x = \\\'value\\\'\'}\n[Hasil read_file]: {\'old_string\': \'say \\\'hello\\\'\', \'code\': \'x = \\\'value\\\'\'}\n[Hasil read_file]: {\'old_string\': \'say \\\'hello\\\'\', \'code\': \'x = \\\'value\\\'\'}\n[Hasil read_file]: {\'old_string\': \'say \\\'hello\\\'\', \'code\': \'x = \\\'value\\\'\'}\n[Hasil read_file]: {\'old_string\': \'say \\\'hello\\\'\', \'code\': \'x = \\\'value\\\'\'}\n\nTugas utama user: GOAL_SENTINEL\nStatus terkini: Hasil eksekusi tool terbaru ada di riwayat di atas.\n- Jika tugas utama sudah terjawab/selesai secara lengkap, berikan jawaban akhir yang jelas dan informatif kepada user sekarang.\n- Jika tugas masih membutuhkan langkah berikutnya atau tool lanjutan (misal melihat isi skill, memanggil MCP, membaca file, delegasi task), panggil tool berikutnya sekarang.\n- JANGAN panggil tool yang sama dengan argumen yang sama dua kali. Kalau hasilnya sudah ada di riwayat/ledger, pakai hasil itu dan lanjut ke langkah berikutnya.'
+
+======================================================================
+FAIL: test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) (tools=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 62, in test_developer_goal_and_raw_observation_preserved
+    self.assertIn(text, prompt)
+AssertionError: 'DEVELOPER_SENTINEL' not found in 'Instruksi: SYSTEM_SENTINEL\n\nUser: GOAL_SENTINEL'
+
+======================================================================
+FAIL: test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='{"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a.py", "offset": 51}}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 86, in test_emitted_protocols_parse
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}
+
+- []
++ [{'arguments': {'offset': 51, 'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='<tool_call>{"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a.py", "offset": 51}}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 86, in test_emitted_protocols_parse
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}])
+AssertionError: Lists differ: [{'name': 'read_file', 'arguments': {}}] != [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}]
+
+First differing element 0:
+{'name': 'read_file', 'arguments': {}}
+{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}
+
+- [{'arguments': {}, 'name': 'read_file'}]
++ [{'arguments': {'offset': 51, 'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='```json\n{"type": "tool_use", "id": "call_1", "name": "read_file", "input": {"path": "a.py", "offset": 51}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 86, in test_emitted_protocols_parse
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}
+
+- []
++ [{'arguments': {'offset': 51, 'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='{"tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\\"path\\":\\"a.py\\",\\"offset\\":51}"}}]}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 86, in test_emitted_protocols_parse
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}
+
+- []
++ [{'arguments': {'offset': 51, 'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='<tool_call>{"tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\\"path\\":\\"a.py\\",\\"offset\\":51}"}}]}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 86, in test_emitted_protocols_parse
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}])
+AssertionError: Lists differ: [{'name': None, 'arguments': {}}] != [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}]
+
+First differing element 0:
+{'name': None, 'arguments': {}}
+{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}
+
+- [{'arguments': {}, 'name': None}]
++ [{'arguments': {'offset': 51, 'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) (text='```json\n{"tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\\"path\\":\\"a.py\\",\\"offset\\":51}"}}]}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 86, in test_emitted_protocols_parse
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}])
+AssertionError: Lists differ: [{'name': 'read_file', 'arguments': {'path': 'a.py'}}] != [{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}]
+
+First differing element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+{'name': 'read_file', 'arguments': {'path': 'a.py', 'offset': 51}}
+
+- [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
++ [{'arguments': {'offset': 51, 'path': 'a.py'}, 'name': 'read_file'}]
+?                 ++++++++++++++
+
+
+======================================================================
+FAIL: test_instruction_roles_remain_distinguishable (test_agent_responsiveness.ProtocolTests.test_instruction_roles_remain_distinguishable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 70, in test_instruction_roles_remain_distinguishable
+    self.assertIn('[System]', prompt)
+AssertionError: '[System]' not found in 'Instruksi Sistem:\nsystem rule\n\nKamu adalah asisten AI dengan kemampuan tool calling. Gunakan format Qwen XML native.\nBerikut tools yang tersedia:\n- read_file: Read file\n  Parameters:\n    - path (string, required)\n    - offset (integer, optional)\n    - limit (integer, optional)\n  Required: path\n  Usage: <tool_call><function=read_file><parameter=path>path/to/file</parameter></function></tool_call>\n\nCara memanggil tool (pakai SATU format ini, jangan format lain):\n<tool_call>\n<function=nama_tool>\n<parameter=param1>nilai</parameter>\n<parameter=param2>nilai</parameter>\n</function>\n</tool_call>\n\nAtau jika tool butuh argumen kompleks:\n<tool_call>\n<function=nama_tool>\n{\n  "param1": "nilai",\n  "param2": "nilai"\n}\n</function>\n</tool_call>\n\nPENTING:\n- Panggil SATU tool per blok <tool_call>.\n- Selalu tutup dengan </function></tool_call>.\n- Jangan ulangi tool call yang sama tanpa membaca hasil observasi dulu.\n- Jika menulis kode program, tuliskan kode lengkap fungsional sekarang juga.\n\nRiwayat percakapan:\n[User]: goal\n\nTugas sekarang:\ngoal'
+
+======================================================================
+FAIL: test_read_pagination_preserved (test_agent_responsiveness.ProtocolTests.test_read_pagination_preserved)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 74, in test_read_pagination_preserved
+    self.assertEqual(m.normalize_tool_args('read_file', {'path': 'a.py', 'offset': 51, 'limit': 25}, available_tools=TOOLS), {'path': 'a.py', 'offset': 51, 'limit': 25})
+AssertionError: {'path': 'a.py'} != {'path': 'a.py', 'offset': 51, 'limit': 25}
+- {'path': 'a.py'}
++ {'limit': 25, 'offset': 51, 'path': 'a.py'}
+
+======================================================================
+FAIL: test_retry_backoff_never_exceeds_remaining_or_final_attempt (test_agent_responsiveness.ProtocolTests.test_retry_backoff_never_exceeds_remaining_or_final_attempt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 125, in test_retry_backoff_never_exceeds_remaining_or_final_attempt
+    self.assertLessEqual(budget.next_delay(0, 'rate_limit'), 0.01)
+AssertionError: 9.660446340351598 not less than or equal to 0.01
+
+======================================================================
+FAIL: test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) (text='<tool_call><function=unknown>{"path":"a.py"}</function></tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 102, in test_unknown_and_illustrative_calls_not_executed
+    self.assertEqual(m.smart_extract_tool_calls(text, 'Explain tool syntax', TOOLS)[0], [])
+AssertionError: Lists differ: [{'name': 'unknown', 'arguments': {'path': 'a.py'}}] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+{'name': 'unknown', 'arguments': {'path': 'a.py'}}
+
+- [{'arguments': {'path': 'a.py'}, 'name': 'unknown'}]
++ []
+
+======================================================================
+FAIL: test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) (text='For example:\n```xml\n<tool_call><function=read_file>{"path":"a.py"}</function></tool_call>\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 102, in test_unknown_and_illustrative_calls_not_executed
+    self.assertEqual(m.smart_extract_tool_calls(text, 'Explain tool syntax', TOOLS)[0], [])
+AssertionError: Lists differ: [{'name': 'read_file', 'arguments': {'path': 'a.py'}}] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
++ []
+
+======================================================================
+FAIL: test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) (text='Example usage:\n```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 102, in test_unknown_and_illustrative_calls_not_executed
+    self.assertEqual(m.smart_extract_tool_calls(text, 'Explain tool syntax', TOOLS)[0], [])
+AssertionError: Lists differ: [{'name': 'read_file', 'arguments': {'path': 'a.py'}}] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
++ []
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.984s
+
+FAILED (failures=26, errors=4)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=10, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] Upstream server busy, retrying attempt 1/4...
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Upstream non-stream retry 1/5 due to: offline
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Upstream non-stream retry 1/5 due to: BUG
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
