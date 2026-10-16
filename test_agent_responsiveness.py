@@ -154,6 +154,51 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
         self.assertEqual(clean, '')
 
+    def test_json_string_protocol_markers_are_content(self):
+        tools = TOOLS + [{'type': 'function', 'function': {
+            'name': 'write_file', 'parameters': {'type': 'object',
+                'properties': {'path': {'type': 'string'}, 'content': {'type': 'string'}},
+                'required': ['path', 'content']}}}]
+        content = 'Before\n```python\nprint("quoted")\n```\nAfter <tool_call> <function=read_file>'
+        call = {'name': 'write_file', 'arguments': {'path': 'README.md', 'content': content}}
+        payload = json.dumps(call)
+        for text in (payload, '<tool_call>' + payload + '</tool_call>',
+                     '```json\n' + payload + '\n```',
+                     '<tool_call>```json\n' + payload + '\n```</tool_call>'):
+            with self.subTest(text=text):
+                calls, clean = m.smart_extract_tool_calls(text, '', tools)
+                self.assertEqual(calls, [call])
+                self.assertEqual(clean, '')
+
+    def test_json_string_invocations_are_not_executed(self):
+        nested = '<tool_call>{"name":"read_file","arguments":{"path":"hidden.py"}}</tool_call>'
+        payload = json.dumps({'name': 'unknown', 'arguments': {'content': '```json\n' + nested + '\n```'}})
+        for text in (payload, '<tool_call>' + payload + '</tool_call>',
+                     '```json\n' + payload + '\n```'):
+            with self.subTest(text=text):
+                self.assertEqual(m.smart_extract_tool_calls(text, '', TOOLS), ([], text))
+
+    def test_malformed_xml_does_not_swallow_next_invocation(self):
+        invalids = ('<function=unknown>oops', '<invoke name="unknown">oops',
+                    '<function=read_file>oops', '<tool_call><function=unknown>oops')
+        valids = ('<function=read_file>{"path":"xml.py"}</function>',
+                  '<invoke name="read_file">{"path":"xml.py"}</invoke>',
+                  '<function=read_file>{"path":"xml.py"}',
+                  '<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>',
+                  '```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```')
+        for invalid in invalids:
+            for valid in valids:
+                with self.subTest(invalid=invalid, valid=valid):
+                    calls, clean = m.smart_extract_tool_calls(invalid + '\n' + valid, '', TOOLS)
+                    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+                    self.assertEqual(clean, invalid)
+
+    def test_malformed_xml_alone_is_not_an_invocation(self):
+        for text in ('<function=unknown>oops', '<invoke name="unknown">oops',
+                     '<function=read_file>oops', '<tool_call><function=unknown>oops'):
+            with self.subTest(text=text):
+                self.assertEqual(m.smart_extract_tool_calls(text, '', TOOLS), ([], text))
+
     def test_network_deny_is_fail_closed(self):
         from offline_test_support import ATTEMPTS, NetworkForbidden
         import socket

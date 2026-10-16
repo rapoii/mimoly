@@ -1,0 +1,23 @@
+  PASS  test_working_set_preserves_anchor_tools
+  PASS  test_working_set_retains_recent_tools
+  PASS  test_bm25_ranking_precision
+  PASS  test_empty_and_fallback
+
+[latency benchmark] 300 tools: Min=0.673ms, Median=0.688ms, Avg=0.695ms
+  PASS  test_ranking_latency_benchmark_300_tools
+  PASS  test_class_level_select_working_set
+  PASS  test_malformed_and_nameless_tool_filtering
+  PASS  test_stable_chronological_retention_order
+  PASS  test_concurrency_thread_safety
+  PASS  test_render_adaptive_tool_catalogue_full_schema
+  PASS  test_render_adaptive_tool_catalogue_frameworks
+  PASS  test_budget_pruning_description_truncation
+  PASS  test_budget_pruning_tool_description_truncation
+  PASS  test_render_adaptive_catalogue_flexibility_and_json_literals
+  PASS  test_budget_pruning_dynamic_throttling_preserves_anchors
+  PASS  test_render_adaptive_catalogue_edge_cases
+
+[render latency] 15 tools with pruning: Min=0.657ms, Median=0.672ms, Avg=0.673ms
+  PASS  test_render_latency_benchmark
+
+RESULT: 17 passed, 0 failed

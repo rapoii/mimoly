@@ -86,6 +86,39 @@ New regression run: `Ran 22 tests in 0.552s`, `OK`, exit 0; full output in `2026
 - Report, captured RED/GREEN logs, and Task 1 checkbox completion: subsequent scoped `docs: record responsiveness verification evidence` commit (resolve with `git log -1 --format=%H -- docs/superpowers/plans/2026-10-16-agent-responsiveness-report.md`; its own hash cannot be embedded without changing it).
 - No push/merge. Task 2 remains unchecked and parent-owned.
 
+## Remaining parser-review corrections (2026-10-16, based on 9b540765)
+
+Both remaining parser blockers have local fixes and behavioral coverage. Independent re-review and parent-owned live verification remain pending; Task 2 is not marked complete. No delegates, live network, service restarts, installs, secrets, push or merge.
+
+### Findings recovery and implementation
+
+Read the ending of `C:/Users/Rafi/AppData/Local/hermes/cache/delegation/live/deleg_905f3cc9/task-0.log`. The log itself contains truncated reviewer text, so the full exact JSON is unavailable even when read directly with Python. Its retained probes show valid write_file content truncated from a fenced-code string to `Before`, and malformed bare XML swallowing following XML/JSON. Reproduced both behaviors with behavioral assertions before their respective production fixes.
+
+- `mimoly.py`: scan candidate starts in order; use `JSONDecoder.raw_decode` to establish complete JSON boundaries before recognizing backticks or protocol tags. JSON strings retain their literal content, including escaped quotes, newlines, triple backticks and protocol-looking text. Wrapper/fence suffixes are consumed only after decoding. Unknown outer JSON does not expose embedded invocations.
+- XML legacy fallback now ends malformed bare/wrapped function/invoke spans before the next invocation or fence, retaining the malformed text while allowing subsequent valid calls. Registry/schema checks and sibling-markdown healing remain unchanged.
+
+### Added exact behavioral tests
+
+All are methods of `test_agent_responsiveness.ProtocolTests`:
+
+1. `test_json_string_protocol_markers_are_content`: exact write_file payload and empty-clean-output equality for bare JSON, tool_call-wrapped JSON, standalone JSON fence and wrapped JSON fence; content includes fenced Python, escaped quotes and literal protocol tags.
+2. `test_json_string_invocations_are_not_executed`: unknown outer JSON containing a valid-looking nested read_file and fence returns no calls and original text, for bare/wrapped/fenced forms (negative control).
+3. `test_malformed_xml_does_not_swallow_next_invocation`: 4 malformed prefixes (unknown function, unknown invoke, known-but-invalid function, wrapped unknown function) × 5 following valid forms (closed function, closed invoke, unclosed function, wrapped JSON, fenced JSON). Assert exactly one correct call and preserve malformed prefix.
+4. `test_malformed_xml_alone_is_not_an_invocation`: all 4 malformed prefixes alone produce no call and unchanged original text (negative control).
+
+### Actual RED/GREEN and scoped commit
+
+Existing `.venv/Scripts/python.exe`, each command individually bounded by `timeout 60`:
+
+- JSON RED before production edits: `-m unittest -v test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content`; exit 1, `Ran 1 test`, `FAILED (failures=3)`. Evidence: `2026-10-16-parser-json-red.log`. Wrapped-fence positive control already passed.
+- XML RED before XML fix: `-m unittest -v test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation test_agent_responsiveness.ProtocolTests.test_malformed_xml_alone_is_not_an_invocation`; exit 1, `Ran 2 tests`, `FAILED (failures=18)`. Negative control already passed. Evidence: `2026-10-16-parser-xml-red.log`.
+- Final `-m unittest -v test_agent_responsiveness`: exit 0, `Ran 32 tests in 0.559s`, `OK`; evidence `2026-10-16-parser-fixes-green.log`. Existing deny-network guard remains installed before production imports in all six runners.
+- Five runners all exit 0: upstream frames / reliability `all checks passed`; interceptor 15 passed/0 failed; tool RAG 17 passed/0 failed; RAG agent E2E 10 passed/0 failed. Full evidence: `2026-10-16-parser-test_<runner>.log` for each runner.
+- `-m py_compile mimoly.py test_agent_responsiveness.py` and `git diff --check`: exit 0; existing LF/CRLF checkout warnings only.
+- Scoped commit: `fix: preserve JSON payloads and isolate malformed XML calls` (resolve exact hash with `git log -1 --format=%H --grep='fix: preserve JSON payloads and isolate malformed XML calls'`; commit cannot embed its own hash). Changes limited to parser, regressions, this report and eight evidence logs.
+
+No claim of live performance or exhaustive malformed-protocol correctness. Illustrative example detection remains lexical; tolerant legacy XML/JSON repair remains for compatibility. Parent independent re-review/live verification is still outstanding.
+
 ## Independent-review corrections (2026-10-16)
 
 All three findings fixed in one scoped follow-up commit. No agents spawned, no live requests or server restart. No installs, credential inspection, push or merge.

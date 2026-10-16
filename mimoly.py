@@ -2421,14 +2421,52 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     # Non-overlapping protocol spans are decoded independently in source order.
     # Outer tool_call/fence wrappers own their nested XML/JSON, so a call is not
     # extracted twice. An invalid span cannot hide a later valid protocol.
-    spans = list(re.finditer(
+    protocol_start = re.compile(r"<tool_call>|```[^\n]*\n|<(?:function|invoke)(?:=|\s+name=)[^>]*>|[\[{]")
+    fallback_span = re.compile(
         r"<tool_call>\s*```[^\n]*\n[\s\S]*?```\s*</tool_call>"
-        r"|<tool_call>(?:(?!<tool_call>|```)[\s\S])*?(?:</tool_call>|(?=<tool_call>|```)|$)"
+        r"|<tool_call>\s*(?:<(?:function|invoke)(?:=|\s+name=)[^>]*>)?"
+        r"(?:(?!<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))[\s\S])*?"
+        r"(?:</tool_call>|(?=<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))|$)"
         r"|```[^\n]*\n[\s\S]*?```"
-        r"|<(?:function|invoke)(?:=|\s+name=)[^>]*>[\s\S]*?(?:</(?:function|invoke)>|$)",
-        executable,
-    ))
-    candidates = [(span.start(), span.end(), span.group(0)) for span in spans]
+        r"|<(?:function|invoke)(?:=|\s+name=)[^>]*>"
+        r"(?:(?!<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))[\s\S])*?"
+        r"(?:</(?:function|invoke)>|(?=<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))|$)"
+    )
+    candidates = []
+    cursor = 0
+    decoder = json.JSONDecoder()
+    while match := protocol_start.search(executable, cursor):
+        start = match.start()
+        payload_start = start
+        wrapped = executable.startswith('<tool_call>', start)
+        if wrapped:
+            payload_start += len('<tool_call>')
+        while payload_start < len(executable) and executable[payload_start].isspace():
+            payload_start += 1
+        fence = re.match(r"```[^\n]*\n", executable[payload_start:])
+        if fence:
+            payload_start += fence.end()
+            while payload_start < len(executable) and executable[payload_start].isspace():
+                payload_start += 1
+        try:
+            # Decode before looking for protocol delimiters: backticks/tags in
+            # JSON strings are data, never recovery boundaries.
+            _, end = decoder.raw_decode(executable, payload_start)
+        except ValueError:
+            span = fallback_span.match(executable, start)
+            if span is None:
+                cursor = match.end()
+                continue
+            end = span.end()
+        else:
+            suffix = re.match(r"\s*```", executable[end:]) if fence else None
+            if suffix:
+                end += suffix.end()
+            suffix = re.match(r"\s*</tool_call>", executable[end:]) if wrapped else None
+            if suffix:
+                end += suffix.end()
+        candidates.append((start, end, executable[start:end]))
+        cursor = end
     if not candidates:
         candidates = [(0, len(executable), executable)]
     result = []
