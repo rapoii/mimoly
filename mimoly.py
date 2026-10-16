@@ -421,15 +421,11 @@ def acquire_account() -> Tuple[Dict[str, str], Optional[Any]]:
 
 
 def release_account(acct: Optional[Any], success: bool, error_class: Optional[str] = None) -> None:
+    # Reservation/health bookkeeping is not lock ownership. A queued request may
+    # release its reservation while another request still owns this account lock.
+    # Only the lifecycle that acquired the lock may release it.
     if _ACCOUNT_POOL is not None and acct is not None:
         _ACCOUNT_POOL.release(acct, success=success, error_class=error_class)
-        if hasattr(acct, "get_lock"):
-            try:
-                l = acct.get_lock()
-                if l.locked():
-                    l.release()
-            except RuntimeError:
-                pass
 
 
 def can_rotate_account() -> bool:
@@ -3591,6 +3587,7 @@ class _RequestLifecycle:
         self.locks = []
         self.timings = {}
         self.output_started = False
+        self.closed = False
 
     def mark(self, phase):
         self.timings.setdefault(phase, round((time.monotonic() - self.started) * 1000, 2))
@@ -3621,6 +3618,9 @@ class _RequestLifecycle:
         await asyncio.sleep(min(delay, max(0.0, self.deadline - time.monotonic())))
 
     def close(self):
+        if self.closed:
+            return
+        self.closed = True
         for lock in list(self.locks):
             self.release_lock(lock)
         for account in list(self.accounts):

@@ -17,6 +17,9 @@ import mimoly_rag as rag
 from mimoly_interceptor import ActionEvaluator, Verdict
 from mimoly_reliability import PooledAccount, RetryBudget
 
+REAL_ACQUIRE_ACCOUNT = m.acquire_account
+REAL_RELEASE_ACCOUNT = m.release_account
+
 TOOLS = [{"type": "function", "function": {"name": "read_file", "description": "Read file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["path"]}}}]
 
 def request():
@@ -429,6 +432,203 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.account.get_lock().locked())
         self.assertEqual(len(self.releases), 1)
         self.assertEqual(m._ADMISSION.in_flight, before)
+
+class RealPoolLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    """Integration coverage must not mock the account-release ownership boundary."""
+    client = LifecycleTests.client
+    collect = LifecycleTests.collect
+
+    def setUp(self):
+        LifecycleTests.setUp(self)
+        from mimoly_reliability import AccountPool, TTLCache
+        self.pool = AccountPool([{'id': 'offline', 'cookies': {}}])
+        self.account = self.pool.accounts[0]
+        self.stack.enter_context(patch.object(m, '_ACCOUNT_POOL', self.pool))
+        self.stack.enter_context(patch.object(m, 'acquire_account', REAL_ACQUIRE_ACCOUNT))
+        self.stack.enter_context(patch.object(m, 'release_account', REAL_RELEASE_ACCOUNT))
+        self.stack.enter_context(patch.object(m, '_RESPONSE_CACHE', TTLCache(maxsize=16, ttl=60)))
+
+    async def test_real_release_success_and_cache_hit(self):
+        client = self.client([['42']])
+        before = m._ADMISSION.in_flight
+        first = await m.handle_chat_completion(self.body, request())
+        lock = self.account.get_lock()
+        await lock.acquire()  # cache hit must neither wait for nor release another owner
+        try:
+            second = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), 0.2)
+            self.assertTrue(lock.locked())
+        finally:
+            lock.release()
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(json.loads(first.body)['choices'][0]['message']['content'], '42')
+        self.assertEqual(json.loads(first.body), json.loads(second.body))
+        self.assertEqual(len(client.queries), 1)
+        self.assertEqual(self.account.in_flight, 0)
+        self.assertEqual(self.account.successes, 1)
+        self.assertFalse(self.account.get_lock().locked())
+        self.assertEqual(m._ADMISSION.in_flight, before)
+
+    async def test_real_release_http_early_return(self):
+        client = self.client([[]])
+        original_stream = client.stream
+        def stream(*args, **kwargs):
+            response = original_stream(*args, **kwargs)
+            response.status_code = 400
+            async def aread():
+                return b'offline bad request'
+            response.aread = aread
+            return response
+        client.stream = stream
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(result.status_code, 400)
+        self.assertEqual(self.account.in_flight, 0)
+        self.assertFalse(self.account.get_lock().locked())
+
+    async def test_real_release_queued_timeout_keeps_owner_lock(self):
+        lock = self.account.get_lock()
+        await lock.acquire()
+        self.addCleanup(lambda: lock.release() if lock.locked() else None)
+        self.stack.enter_context(patch.object(m, '_request_budget_seconds', return_value=0.02))
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(result.status_code, 504)
+        self.assertTrue(lock.locked())
+        self.assertEqual(self.account.in_flight, 0)
+        self.upstream.assert_not_called()
+
+    async def test_real_release_queued_cancel_keeps_owner_lock(self):
+        lock = self.account.get_lock()
+        await lock.acquire()
+        self.addCleanup(lambda: lock.release() if lock.locked() else None)
+        entered = asyncio.Event()
+        original = m._RequestLifecycle.acquire_lock
+        async def acquire(lifecycle, candidate):
+            entered.set()
+            await original(lifecycle, candidate)
+        with patch.object(m._RequestLifecycle, 'acquire_lock', acquire):
+            task = asyncio.create_task(m.handle_chat_completion(self.body, request()))
+            await asyncio.wait_for(entered.wait(), 0.2)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertTrue(lock.locked())
+        self.assertEqual(self.account.in_flight, 0)
+
+    async def test_real_release_does_not_unlock_owned_lock_before_lifecycle(self):
+        owner = m._RequestLifecycle(1)
+        _, account = owner.acquire()
+        lock = account.get_lock()
+        await owner.acquire_lock(lock)
+        owner.release(account, success=True)
+        self.assertTrue(lock.locked(), 'account bookkeeping cannot release lifecycle lock')
+        owner.close()
+        await lock.acquire()  # another request now owns it
+        try:
+            owner.close()
+            self.assertTrue(lock.locked(), 'repeated close cannot release next owner')
+            self.assertEqual(account.successes, 1)
+        finally:
+            lock.release()
+
+    async def test_real_release_close_twice_is_idempotent(self):
+        lifecycle = m._RequestLifecycle(1)
+        _, account = lifecycle.acquire()
+        await lifecycle.acquire_lock(account.get_lock())
+        with patch('builtins.print') as log:
+            lifecycle.close()
+            lifecycle.close()
+        self.assertEqual(account.in_flight, 0)
+        self.assertEqual(account.successes, 1)
+        self.assertEqual(log.call_count, 1)
+
+    async def test_real_release_stream_normal_close(self):
+        self.body['stream'] = True
+        self.client([['42']])
+        output = await self.collect(await m.handle_chat_completion(self.body, request()))
+        self.assertIn('42', output)
+        self.assertEqual(self.account.in_flight, 0)
+        self.assertFalse(self.account.get_lock().locked())
+
+
+class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
+    """Deterministic wire-shape probes, not assertions about unseen live frames."""
+    collect = LifecycleTests.collect
+
+    def setUp(self):
+        LifecycleTests.setUp(self)
+        self.body['thinking'] = {'type': 'disabled'}
+        self.body['tools'] = TOOLS
+        self.body['messages'] = [{'role': 'user', 'content': 'Read a.py'}]
+        from mimoly_reliability import TTLCache
+        self.stack.enter_context(patch.object(m, '_RESPONSE_CACHE', TTLCache(maxsize=16, ttl=60)))
+        self.stack.enter_context(patch.object(m, '_request_budget_seconds', return_value=0.04))
+
+    def wire_client(self, script):
+        class WireResponse(Response):
+            async def aiter_lines(self):
+                for frame in self.script:
+                    if isinstance(frame, float):
+                        await asyncio.sleep(frame)
+                    elif isinstance(frame, dict):
+                        yield 'data: ' + json.dumps(frame)
+                    else:
+                        yield frame
+        client = Client([])
+        client.payloads = []
+        def stream(*args, **kwargs):
+            client.payloads.append(copy.deepcopy(kwargs['json']))
+            client.queries.append(kwargs['json']['query'])
+            response = WireResponse(script)
+            client.responses.append(response)
+            return response
+        client.stream = stream
+        self.stack.enter_context(patch.object(m, 'get_shared_client', return_value=client))
+        return client
+
+    async def test_standard_text_tool_call_with_done_is_accepted(self):
+        invocation = '<tool_call>{"name":"read_file","arguments":{"path":"a.py"}}</tool_call>'
+        client = self.wire_client([{'type': 'text', 'content': invocation}, 'data: [DONE]'])
+        result = await m.handle_chat_completion(self.body, request())
+        data = json.loads(result.body)
+        self.assertEqual(data['choices'][0]['finish_reason'], 'tool_calls')
+        self.assertEqual(data['choices'][0]['message']['tool_calls'][0]['function']['name'], 'read_file')
+        self.assertFalse(client.payloads[0]['modelConfig']['enableThinking'])
+        self.assertTrue(client.responses[0].closed)
+
+    async def test_native_tool_call_with_eof_is_accepted(self):
+        self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]}])
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(json.loads(result.body)['choices'][0]['finish_reason'], 'tool_calls')
+
+    async def test_normal_answer_with_done_is_not_a_reasoning_stall(self):
+        self.wire_client([{'type': 'text', 'content': '42'}, 'data: [DONE]'])
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(json.loads(result.body)['choices'][0]['message']['content'], '42')
+
+    async def test_tool_frame_then_stalled_read_expires_without_returning_tool(self):
+        client = self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]}, 1.0])
+        result = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), 0.2)
+        self.assertEqual(result.status_code, 504)
+        self.assertEqual(len(client.queries), 1)
+        self.assertTrue(client.responses[0].closed)
+        self.assertFalse(self.account.get_lock().locked())
+
+    async def test_error_frame_without_content_then_stall_is_not_surfaced(self):
+        client = self.wire_client([{'error': {'message': 'offline sentinel failure'}}, 1.0])
+        result = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), 0.2)
+        self.assertEqual(result.status_code, 504)
+        self.assertNotIn('sentinel', result.body.decode())
+        self.assertEqual(len(client.queries), 1)
+
+    async def test_dialog_id_event_state_is_sticky_without_next_event(self):
+        client = self.wire_client(['event: dialogId', {'content': '12345'}, '',
+                                  {'type': 'text', 'content': '42'}, 'data: [DONE]'])
+        # Current reader retains dialogId until another event: line; characterize
+        # this gap without a tool interceptor retry obscuring the missing answer.
+        self.body.pop('tools')
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(json.loads(result.body)['choices'][0]['message']['content'], '')
+        self.assertEqual(len(client.queries), 1)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

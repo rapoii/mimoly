@@ -1,0 +1,154 @@
+test_real_release_close_twice_is_idempotent (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_close_twice_is_idempotent) ... FAIL
+test_real_release_does_not_unlock_owned_lock_before_lifecycle (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_does_not_unlock_owned_lock_before_lifecycle) ... FAIL
+test_real_release_http_early_return (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_http_early_return) ... ERROR
+test_real_release_queued_cancel_keeps_owner_lock (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_queued_cancel_keeps_owner_lock) ... FAIL
+test_real_release_queued_timeout_keeps_owner_lock (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_queued_timeout_keeps_owner_lock) ... FAIL
+test_real_release_stream_normal_close (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_stream_normal_close) ... ERROR
+test_real_release_success_and_cache_hit (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_success_and_cache_hit) ... ERROR
+
+======================================================================
+ERROR: test_real_release_http_early_return (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_http_early_return)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 474, in test_real_release_http_early_return
+    result = await m.handle_chat_completion(self.body, request())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3541, in handle_chat_completion
+    result = await _handle_chat_completion_inner(body, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3678, in _handle_chat_completion_inner
+    lifecycle.close()
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3625, in close
+    self.release_lock(lock)
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3611, in release_lock
+    lock.release()
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\locks.py", line 139, in release
+    raise RuntimeError('Lock is not acquired.')
+RuntimeError: Lock is not acquired.
+
+======================================================================
+ERROR: test_real_release_stream_normal_close (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_stream_normal_close)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 538, in test_real_release_stream_normal_close
+    output = await self.collect(await m.handle_chat_completion(self.body, request()))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 267, in collect
+    async for chunk in response.body_iterator:
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3562, in _admitting_iter
+    async for _chunk in _inner_iter:
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3667, in bounded_stream
+    lifecycle.close()
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3625, in close
+    self.release_lock(lock)
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3611, in release_lock
+    lock.release()
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\locks.py", line 139, in release
+    raise RuntimeError('Lock is not acquired.')
+RuntimeError: Lock is not acquired.
+
+======================================================================
+ERROR: test_real_release_success_and_cache_hit (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_success_and_cache_hit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 452, in test_real_release_success_and_cache_hit
+    first = await m.handle_chat_completion(self.body, request())
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3541, in handle_chat_completion
+    result = await _handle_chat_completion_inner(body, request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3678, in _handle_chat_completion_inner
+    lifecycle.close()
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3625, in close
+    self.release_lock(lock)
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3611, in release_lock
+    lock.release()
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\locks.py", line 139, in release
+    raise RuntimeError('Lock is not acquired.')
+RuntimeError: Lock is not acquired.
+
+======================================================================
+FAIL: test_real_release_close_twice_is_idempotent (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_close_twice_is_idempotent)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 533, in test_real_release_close_twice_is_idempotent
+    self.assertEqual(log.call_count, 1)
+AssertionError: 2 != 1
+
+======================================================================
+FAIL: test_real_release_does_not_unlock_owned_lock_before_lifecycle (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_does_not_unlock_owned_lock_before_lifecycle)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 514, in test_real_release_does_not_unlock_owned_lock_before_lifecycle
+    self.assertTrue(lock.locked(), 'account bookkeeping cannot release lifecycle lock')
+AssertionError: False is not true : account bookkeeping cannot release lifecycle lock
+
+======================================================================
+FAIL: test_real_release_queued_cancel_keeps_owner_lock (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_queued_cancel_keeps_owner_lock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 505, in test_real_release_queued_cancel_keeps_owner_lock
+    self.assertTrue(lock.locked())
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_real_release_queued_timeout_keeps_owner_lock (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_queued_timeout_keeps_owner_lock)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 486, in test_real_release_queued_timeout_keeps_owner_lock
+    self.assertTrue(lock.locked())
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.129s
+
+FAILED (failures=4, errors=3)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False

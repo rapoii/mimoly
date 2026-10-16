@@ -119,6 +119,50 @@ Existing `.venv/Scripts/python.exe`, each command individually bounded by `timeo
 
 No claim of live performance or exhaustive malformed-protocol correctness. Illustrative example detection remains lexical; tolerant legacy XML/JSON repair remains for compatibility. Parent independent re-review/live verification is still outstanding.
 
+## Live-discovered lock ownership correction and offline timeout probes (2026-10-16)
+
+### Live evidence supplied by parent; no new live calls
+
+Parent's two already-completed requests used a temporary server which was subsequently stopped. Direct arithmetic (nonstream, thinking disabled, no tools) returned HTTP 500 at 6.594s with `RuntimeError: Lock is not acquired` in `lifecycle.close -> release_lock -> lock.release`. A safe terminal-tool request (nonstream, thinking disabled) returned HTTP 504 at 50.031s. Supplied timing: attempt start 219ms, upstream first frame 297ms, total 50000ms. Continuation was skipped because no valid terminal invocation returned. First frame is not first answer/tool, and this evidence does NOT establish reasoning latency or identify the live wire payload. No raw upstream frames were retained. This follow-up made no live requests, started no server, installed nothing, and did not inspect credentials.
+
+### Proven cause and scoped fix
+
+`release_account()` combined account reservation/health bookkeeping with unconditional unlocking of any locked account. `_RequestLifecycle` independently owns and tracks acquired locks. A successful response or HTTP early return called `lifecycle.release(account)`, unlocking beneath the lifecycle; the later finally/close attempted the same release and raised. Worse, cancellation/deadline of a request waiting for an account lock released a lock owned by a different request. Checking `locked()` or swallowing RuntimeError is not an ownership fix.
+
+Remove unlocking from `release_account`; only the lifecycle acquisition owner releases locks. Existing stream/nonstream/rotation finally paths already use lifecycle release. Make `close()` explicitly idempotent, including timing emission. No API, parser, retry-policy, or timeout value changed.
+
+The earlier lifecycle fixture mocked both acquire and release, hiding the real integration boundary. New tests use the real `AccountPool`, real acquire/release functions, isolated cache, dummy cookies and scripted upstream, retaining deny-network installation before production imports. Coverage: successful response plus cache hit while a foreign lock is held; HTTP 400 early return; queued timeout and queued cancellation preserving owner lock; reservation release cannot unlock lifecycle ownership; next owner protected after repeated close; close twice emits timing once and releases account once; normal streaming close.
+
+### RED -> GREEN evidence
+
+All commands use existing Python 3.12 `.venv/Scripts/python.exe` and per-command `timeout 60`.
+
+- Before production edits: `-m unittest -v test_agent_responsiveness.RealPoolLifecycleTests`, exit 1, **7 tests; 4 failures and 3 errors**, including the exact live double-release traceback. Full output `2026-10-16-lock-ownership-red.log`.
+- After fix and offline probes: `-m unittest -v test_agent_responsiveness`, exit 0, **45 tests, OK** (32 prior + 7 ownership + 6 wire-shape probes). Full output `2026-10-16-lock-ownership-green.log`.
+- Five existing runners individually exit 0: `test_upstream_frames.py`, `test_action_interceptor.py`, `test_tool_rag.py`, `test_reliability.py`, `test_rag_agent_e2e.py`. Full output `2026-10-16-lock-test_<runner>.log`.
+- `-m py_compile mimoly.py mimoly_reliability.py mimoly_interceptor.py mimoly_rag.py test_agent_responsiveness.py` and `git diff --check`: exit 0. Git's existing LF/CRLF checkout warnings only.
+
+### Deterministic nonstream/no-thinking timeout investigation
+
+Six characterization probes operate through the real request handler with a scripted SSE reader and short 40ms outer deadline (not a 50-second wait). Assertions verify thinking disabled is transmitted to `modelConfig.enableThinking`, invocation validity, number of attempts, and cleanup. These are artificial wire inputs, not reconstructed live responses.
+
+1. Normal `type:text/content` containing a valid tool_call plus `[DONE]` -> valid tool response, no missing parser branch for that shape.
+2. Native `toolCalls` with EOF -> valid tool response.
+3. Normal text answer with `[DONE]` -> answer 42.
+4. Native tool call followed by a stalled read -> 504, one attempt, upstream closed, lock released. Nonstream buffers until EOF/[DONE] before parsing/returning a complete tool. Therefore it can time out even if a usable tool frame has already arrived. This is a read/termination design limitation, not a proven live explanation or asyncio deadlock.
+5. `error:{message:...}` without content followed by stall -> 504; error is not surfaced. The normalizer only excludes non-dicts and the reader ignores dictionaries without recognized content/usage/native tool fields. This demonstrates an error-frame gap, not proof the live upstream sent an error.
+6. `event: dialogId`, data, blank line, then ordinary text data without another event -> empty answer. `_event_type` is sticky across event boundaries, so subsequent default-event data is skipped. A later explicit `event:` resets it; raw live frames would be needed to establish relevance.
+
+No actual request invokes the declared tools server-side; this gateway returns invocations to the client. The supplied live run never reached the client execution/continuation stage. No tool execution deadlock has been established. Nonstream timing currently records frame arrival, but not answer/tool parsing phases, so absent first-answer timing is not evidence no answer bytes arrived.
+
+### Deadline policy: unresolved, not silently changed
+
+`_request_budget_seconds` currently returns 50s for non-ultraspeed, 200s for ultraspeed, promoted from retry-loop constants into an end-to-end deadline (including preprocessing, lock queueing and reading). Retry scheduling budget is NOT a documented inference SLA. Existing upstream HTTP read timeout is 180s and source comments explicitly allow >60s thinking streams, which conflicts with the new 50s total cap even though this live request had thinking disabled. Fast first-frame timing cannot justify either raising or keeping a universal inference SLA.
+
+Proposed separate policy change for owner decision: introduce a documented positive finite configurable **total request timeout**, independent from retry/backoff budget; define its defaults and whether queue/preprocessing are included; reject zero/NaN/infinity/negative values rather than quietly disabling the bound. Test outer timeout versus retry exhaustion independently for stream and nonstream, including successful response beyond old retry budget, cancellation/cleanup and queued contention. Choose the default from explicit product/client timeout requirements or retained latency evidence, not this one observation. Do not simply increase both retry and inference budgets or globally disable the bound. Parser/error/event fixes should likewise get separate RED->GREEN fixes with verified upstream contracts; the characterization tests deliberately record current gaps rather than disguising speculation as a live root cause.
+
+Remaining: no post-fix live verification by design; safe live retry needs parent/user authorization and should retain sanitized frame **shape/phase** telemetry (not prompt/cookie/response content), and a separate policy decision is required before claiming the 50s behavior resolved.
+
 ## Independent-review corrections (2026-10-16)
 
 All three findings fixed in one scoped follow-up commit. No agents spawned, no live requests or server restart. No installs, credential inspection, push or merge.
