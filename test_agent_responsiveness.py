@@ -625,6 +625,51 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
         result = await m.handle_chat_completion(self.body, request())
         self.assertEqual(json.loads(result.body)['choices'][0]['message']['content'], '42')
 
+    async def test_ambiguous_build_prompt_is_staged_not_stalled(self):
+        # Replay live 2026-10-16: "bikinin hp" stalls upstream (>300s) with tools
+        # present. Gateway must rewrite the query into a plan-first scaffold so
+        # the first turn returns, single attempt, user goal preserved.
+        self.body['tools'] = TOOLS
+        self.body['stream'] = False
+        self.body['messages'] = [{'role': 'user', 'content': 'bikinin hp'}]
+        plan = 'RENCANA: 1 LANGKAH_SENTINEL'
+        client = self.wire_client([{'type': 'text', 'content': plan}, 'data: [DONE]'])
+        result = await m.handle_chat_completion(self.body, request())
+        output = await self.collect(result)
+        self.assertEqual(result.status_code, 200)
+        self.assertIn('LANGKAH_SENTINEL', output)
+        sent_query = client.payloads[0]['query']
+        self.assertIn('RENCANA', sent_query)
+        self.assertIn('bikinin hp', sent_query)
+        self.assertEqual(len(client.queries), 1)
+
+    async def test_ambiguous_build_without_tools_passes_through(self):
+        # Same ambiguous prompt but no tools: plain-chat path, query must be
+        # the raw user text verbatim, no RENCANA scaffold.
+        self.body.pop('tools')
+        self.body['stream'] = False
+        self.body['messages'] = [{'role': 'user', 'content': 'bikinin hp'}]
+        client = self.wire_client([{'type': 'text', 'content': 'OK'}, 'data: [DONE]'])
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(result.status_code, 200)
+        sent_query = client.payloads[0]['query']
+        self.assertEqual(sent_query, 'bikinin hp')
+        self.assertNotIn('RENCANA', sent_query)
+        self.assertEqual(len(client.queries), 1)
+
+    async def test_non_build_with_tools_is_not_staged(self):
+        # Non-build request with tools present must not be rewritten.
+        self.body['tools'] = TOOLS
+        self.body['stream'] = False
+        self.body['messages'] = [{'role': 'user', 'content': 'buatkan puisi'}]
+        client = self.wire_client([{'type': 'text', 'content': 'puisi'}, 'data: [DONE]'])
+        result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(result.status_code, 200)
+        sent_query = client.payloads[0]['query']
+        self.assertIn('buatkan puisi', sent_query)
+        self.assertNotIn('RENCANA', sent_query)
+        self.assertEqual(len(client.queries), 1)
+
     async def test_tool_frame_then_stalled_read_expires_without_returning_tool(self):
         client = self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]}, 1.0])
         result = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), 0.2)

@@ -3972,6 +3972,21 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
         )
         user_prompt += amplifier
 
+    # Task 2: stage ambiguous build prompts into a plan-first scaffold.
+    # Gate on the RAW last-user text, not the templated user_prompt: the agent
+    # template itself contains build verbs ("menulis") and tool words that
+    # would false-positive the heuristic (e.g. "buatkan puisi" + tools).
+    # Plain-chat and non-build paths pass through untouched.
+    _raw_user_text = _last_user_text(messages)
+    if tools and _ambiguous_build_request(_raw_user_text):
+        print(f"[mimoly] Staged decomposition rewrite applied "
+              f"(raw={len(_raw_user_text)} chars -> staged={len(user_prompt)} chars)")
+        user_prompt = (
+            "Permintaan pembangunan di bawah ini besar/ambigu untuk satu turn. "
+            "Jabarkan dulu RENCANA langkah konkret (maks 5 langkah, 1 kalimat per langkah), JANGAN tulis kode dulu. "
+            "Permintaan asli user: " + user_prompt
+        )
+
     ph_param = cookies.get("xiaomichatbot_ph", "")
     upstream_url, save_url = get_upstream_endpoints(target_upstream_model, ph_param)
 
