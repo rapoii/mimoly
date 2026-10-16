@@ -781,6 +781,33 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(client.queries), 1)
                 self.assertTrue(client.responses[0].closed)
 
+    async def test_upstream_refusal_text_is_surfaced_not_retried_to_exhaustion(self):
+        # Live 2026-10-16: plain conversational prompt (no tools) got the
+        # upstream refusal "Hello, I cannot answer this question at the
+        # moment. Let's talk about something else instead." Current code
+        # treats those phrases as busy (UPSTREAM_BUSY_PHRASES) and retries 4x
+        # with growing sleeps (~25s of dead waiting) before 502. A refusal is
+        # a FINAL answer, not a capacity signal: surface it immediately,
+        # single attempt.
+        self.body.pop('tools', None)
+        refusal = ("Hello, I cannot answer this question at the moment. "
+                   "Let's talk about something else instead.")
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                self.body['messages'] = [{'role': 'user', 'content': 'PROMPT_SENTINEL'}]
+                client = self.wire_client([{'type': 'text', 'content': refusal},
+                                           'data: [DONE]'])
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                if not streaming:
+                    self.assertEqual(result.status_code, 200)
+                self.assertNotIn('upstream_error', output)
+                self.assertNotIn('gateway_error', output)
+                self.assertIn("cannot answer this question", output)
+                self.assertEqual(len(client.queries), 1)
+                self.assertTrue(client.responses[0].closed)
+
     async def test_done_substring_in_json_is_not_a_terminator(self):
         self.body.pop('tools')
         for streaming in (False, True):
