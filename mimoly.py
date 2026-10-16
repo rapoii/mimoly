@@ -3768,15 +3768,36 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
     enable_thinking_param = body.get("enable_thinking")
     thinking_param = body.get("thinking")
 
-    thinking_enabled = True
+    # Determine explicit user intent for thinking (None = no preference stated)
+    _explicit_thinking = None  # None means "caller didn't specify"
     if reasoning_effort in ["none", "off", "false", "0"]:
-        thinking_enabled = False
-    elif enable_thinking_param is False:
-        thinking_enabled = False
-    elif isinstance(thinking_param, dict) and thinking_param.get("type") == "disabled":
-        thinking_enabled = False
+        _explicit_thinking = False
+    elif reasoning_effort not in ["default", ""]:
+        _explicit_thinking = True  # any non-default effort = caller wants thinking
+    if enable_thinking_param is False:
+        _explicit_thinking = False
+    elif enable_thinking_param is True:
+        _explicit_thinking = True
+    if isinstance(thinking_param, dict):
+        if thinking_param.get("type") == "disabled":
+            _explicit_thinking = False
+        elif thinking_param.get("type") == "enabled":
+            _explicit_thinking = True
 
-    # Default to natural thinking (bawaan MiMo 2.6 Pro, fast & focused, no artificial overthinking).
+    # Adaptive thinking strategy:
+    #  - Caller explicitly set thinking → honor it unconditionally
+    #  - No explicit preference + tools present → thinking OFF for stability
+    #    (Xiaomi FAQ recommends disabling thinking during tool calling;
+    #     AI Studio web endpoint returns 服务器繁忙 with thinking+tools)
+    #  - No explicit preference + no tools → thinking ON for reasoning quality
+    has_tools = bool(tools)
+    if _explicit_thinking is not None:
+        thinking_enabled = _explicit_thinking
+    elif has_tools:
+        thinking_enabled = False
+    else:
+        thinking_enabled = True
+
     # Hanya aktifkan amplifier "rata kanan" jika eksplisit diminta via reasoning_effort='max'/'extreme'/'rata_kanan'
     is_rata_kanan = False
     if reasoning_effort in ["max", "high", "extreme", "rata_kanan"] or body.get("rata_kanan") is True:
