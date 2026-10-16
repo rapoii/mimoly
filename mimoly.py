@@ -3574,8 +3574,39 @@ _HEARTBEAT_INTERVAL = 10.0
 
 
 def _request_budget_seconds(model: str) -> float:
-    target = MODEL_ALIASES.get(model.split("/")[-1].lower().strip(), "mimo-v2.6-pro")
-    return 200.0 if is_ultraspeed_model(target) else 50.0
+    """Total preprocessing/queue/inference/backoff time, NOT a retry window.
+
+    Use one 180s default for every model, matching the upstream HTTP read limit.
+    The ultraspeed 200s retry window is scheduling policy, not an inference SLA.
+    """
+    raw = os.environ.get("MIMOLY_REQUEST_TIMEOUT_SECONDS", "180")
+    try:
+        seconds = float(raw)
+        if not (0 < seconds < float("inf")):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("MIMOLY_REQUEST_TIMEOUT_SECONDS must be a positive finite number") from None
+    return seconds
+
+
+class _UpstreamFrameError(Exception):
+    """Terminal SSE error. Never trust message text or infer retryability from it."""
+    def __init__(self, status=None):
+        # Only an explicit HTTP error status can supply a taxonomy classification.
+        self.status_code = status if type(status) is int and 400 <= status <= 599 else 502
+        self.error_class = classify_status(status) if type(status) is int and 400 <= status <= 599 else ERROR_GATEWAY
+        super().__init__("Upstream reported an error frame")
+
+    def payload(self):
+        return {"error": {"message": str(self), "type": "upstream_error",
+                          "code": self.error_class}}
+
+
+def _check_upstream_error_frame(parsed, event):
+    if "error" in parsed or parsed.get("type") == "error" or event == "error":
+        detail = parsed.get("error")
+        detail = detail if isinstance(detail, dict) else parsed
+        raise _UpstreamFrameError(detail.get("status", detail.get("status_code")))
 
 
 class _RequestLifecycle:
@@ -3635,7 +3666,11 @@ class _RequestLifecycle:
 
 
 async def _handle_chat_completion_inner(body: dict, request: Request):
-    lifecycle = _RequestLifecycle(_request_budget_seconds(body.get("model", "mimo-v2.6-pro")))
+    try:
+        seconds = _request_budget_seconds(body.get("model", "mimo-v2.6-pro"))
+    except ValueError as exc:
+        return JSONResponse({"error": {"message": str(exc), "type": "configuration_error"}}, status_code=500)
+    lifecycle = _RequestLifecycle(seconds)
     deferred = False
     try:
         result = await lifecycle.run(_run_chat_completion(body, request, lifecycle))
@@ -3907,8 +3942,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                     _last_error_class = None
                     base_upstream_query = upstream_payload["query"]
                     for attempt in range(_max_attempts):
-                        if _budget.expired():
-                            raise asyncio.TimeoutError("Request deadline exceeded")
+                        if attempt > 0 and _budget.expired():
+                            raise RuntimeError("Retry scheduling budget exhausted")
                         accumulated_chunks.clear()
                         lifecycle.mark(f"attempt_{attempt + 1}_ms")
                         _upstream_was_busy = False
@@ -3928,6 +3963,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                 # calls further apart so retries don't self-throttle.
                                 _min_interval = 5.0 if is_ultraspeed_model(target_upstream_model) else 2.0
                                 await _cur_acct.wait_throttle(min_interval=_min_interval)
+                            if attempt > 0 and _budget.expired():
+                                raise RuntimeError("Retry scheduling budget exhausted")
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
                                     if resp.status_code != 200:
@@ -4012,6 +4049,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                                 continue
 
                                             if not line:
+                                                last_event = None
                                                 continue
                                             if line.startswith("event:"):
                                                 last_event = line[6:].strip()
@@ -4020,7 +4058,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                                 continue
 
                                             data_str = line[5:].strip()
-                                            if "[DONE]" in data_str:
+                                            if data_str == "[DONE]":
                                                 break
 
                                             try:
@@ -4033,6 +4071,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                             parsed = normalize_upstream_frame(parsed)
                                             if parsed is None:
                                                 continue
+                                            _check_upstream_error_frame(parsed, last_event)
 
                                             if parsed.get("content") == "[DONE]":
                                                 break
@@ -4211,6 +4250,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                 _busy_sleep = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
                                 await lifecycle.sleep(_busy_sleep)
                                 continue
+                            if not _has_tools and (_upstream_was_busy or is_upstream_busy(_full_str)):
+                                raise RuntimeError("Upstream busy; retry scheduling budget exhausted")
                             # Strict Action Interceptor: catch reasoning stalls & prose evasions
                             if tools:
                                 full_attempt_reply = "".join(accumulated_chunks)
@@ -4244,6 +4285,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                         await lifecycle.sleep(3.0 * _empty_retries)
                                         continue
                             break
+                        except _UpstreamFrameError:
+                            raise
                         except Exception as conn_err:
                             _conn_class = classify_exception(conn_err)
                             if not is_retryable(_conn_class) or not _budget.should_retry(attempt) or lifecycle.output_started:
@@ -4257,6 +4300,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                     _acct_released = True
 
                 except Exception as e:
+                    lifecycle.release(_cur_acct, success=False, error_class=e.error_class if isinstance(e, _UpstreamFrameError) else classify_exception(e))
+                    _acct_released = True
                     err_chunk = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
@@ -4268,6 +4313,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                             "finish_reason": "error"
                         }]
                     }
+                    if isinstance(e, _UpstreamFrameError):
+                        err_chunk = e.payload()
                     yield f"data: {json.dumps(err_chunk)}\n\n"
                     _STATS["errors"] += 1
                     _record_timeline(errors=1)
@@ -4481,8 +4528,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
         _budget._started_at = lifecycle.started
         _empty_retries = 0
         for attempt in range(_max_attempts):
-            if _budget.expired():
-                raise asyncio.TimeoutError("Request deadline exceeded")
+            if attempt > 0 and _budget.expired():
+                raise RuntimeError("Retry scheduling budget exhausted")
             accumulated_chunks.clear()
             lifecycle.mark(f"attempt_{attempt + 1}_ms")
             upstream_payload["msgId"] = uuid.uuid4().hex
@@ -4490,6 +4537,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                 if _acct and hasattr(_acct, "wait_throttle"):
                     _min_interval = 5.0 if is_ultraspeed_model(target_upstream_model) else 2.0
                     await _acct.wait_throttle(min_interval=_min_interval)
+                if attempt > 0 and _budget.expired():
+                    raise RuntimeError("Retry scheduling budget exhausted")
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:
@@ -4542,13 +4591,16 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                         last_event = None
                         async for line in resp.aiter_lines():
                             lifecycle.mark("upstream_first_frame_ms")
+                            if not line:
+                                last_event = None
+                                continue
                             if line.startswith("event:"):
                                 last_event = line[6:].strip()
                                 continue
                             if not line.startswith("data:"):
                                 continue
                             data_str = line[5:].strip()
-                            if "[DONE]" in data_str:
+                            if data_str == "[DONE]":
                                 break
                             try:
                                 parsed = json.loads(data_str)
@@ -4560,6 +4612,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                             parsed = normalize_upstream_frame(parsed)
                             if parsed is None:
                                 continue
+                            _check_upstream_error_frame(parsed, last_event)
                             if parsed.get("content") == "[DONE]":
                                 break
 
@@ -4612,6 +4665,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                     _busy_sleep_ns = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
                     await lifecycle.sleep(_busy_sleep_ns)
                     continue
+                if not _probe_ns_calls and is_upstream_busy(_full_chunks_txt):
+                    raise RuntimeError("Upstream busy; retry scheduling budget exhausted")
 
                 # Strict Action Interceptor: catch reasoning stalls & prose evasions
                 if tools:
@@ -4641,6 +4696,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                             await lifecycle.sleep(3.0 * _empty_retries)
                             continue
                 break
+            except _UpstreamFrameError:
+                raise
             except Exception as conn_err:
                 _conn_class = classify_exception(conn_err)
                 if not is_retryable(_conn_class) or not _budget.should_retry(attempt):
@@ -4658,7 +4715,9 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
         _record_finish_reason("error")
         _finish_request(_req_rec, output=f"[error] upstream: {e}", finish_reason="error",
                         latency_ms=(time.time() - _req_start) * 1000.0)
-        lifecycle.release(_acct, success=False, error_class=classify_exception(e))
+        lifecycle.release(_acct, success=False, error_class=e.error_class if isinstance(e, _UpstreamFrameError) else classify_exception(e))
+        if isinstance(e, _UpstreamFrameError):
+            return JSONResponse(e.payload(), status_code=e.status_code)
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
     finally:
         if _acct_lock and hasattr(_acct_lock, "locked") and _acct_lock.locked():

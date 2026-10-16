@@ -1,0 +1,221 @@
+test_cancel_midstream_closes_read_and_releases_resources (test_agent_responsiveness.LifecycleTests.test_cancel_midstream_closes_read_and_releases_resources) ... ok
+test_cancel_queued_releases_account_not_foreign_lock (test_agent_responsiveness.LifecycleTests.test_cancel_queued_releases_account_not_foreign_lock) ... ok
+test_compact_retry_preserves_goal_developer_and_observations (test_agent_responsiveness.LifecycleTests.test_compact_retry_preserves_goal_developer_and_observations) ... ok
+test_deadline_includes_lock_wait (test_agent_responsiveness.LifecycleTests.test_deadline_includes_lock_wait) ... ok
+test_deadline_includes_preprocessing (test_agent_responsiveness.LifecycleTests.test_deadline_includes_preprocessing) ... ok
+test_explicit_stream_close_releases_resources (test_agent_responsiveness.LifecycleTests.test_explicit_stream_close_releases_resources) ... ok
+test_global_deadline_bounds_busy_and_nudge_backoff (test_agent_responsiveness.LifecycleTests.test_global_deadline_bounds_busy_and_nudge_backoff) ... ok
+test_idle_heartbeat_does_not_cancel_late_frame (test_agent_responsiveness.LifecycleTests.test_idle_heartbeat_does_not_cancel_late_frame) ... ok
+test_partial_failed_attempt_does_not_contaminate_retry (test_agent_responsiveness.LifecycleTests.test_partial_failed_attempt_does_not_contaminate_retry) ... ok
+test_programming_error_is_not_retried (test_agent_responsiveness.LifecycleTests.test_programming_error_is_not_retried) ... ok
+test_stream_deadline_cancels_pending_read (test_agent_responsiveness.LifecycleTests.test_stream_deadline_cancels_pending_read) ... ok
+test_streamed_answer_is_not_retried (test_agent_responsiveness.LifecycleTests.test_streamed_answer_is_not_retried) ... ok
+test_streamed_reasoning_is_not_mixed_with_retry (test_agent_responsiveness.LifecycleTests.test_streamed_reasoning_is_not_mixed_with_retry) ... ok
+test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) ... ok
+test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) ... ok
+test_done_substring_in_json_is_not_a_terminator (test_agent_responsiveness.NonstreamFrameProbeTests.test_done_substring_in_json_is_not_a_terminator) ... ok
+test_error_after_buffered_tool_never_returns_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_buffered_tool_never_returns_tool) ... ok
+test_error_after_visible_answer_does_not_retry (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_visible_answer_does_not_retry) ... ok
+test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) ... ok
+test_explicit_retryable_status_is_terminal_without_verified_replay_contract (test_agent_responsiveness.NonstreamFrameProbeTests.test_explicit_retryable_status_is_terminal_without_verified_replay_contract) ... [mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 16.0, "total_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=10, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 16.0, "attempt_2_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 32.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] Upstream server busy, retrying attempt 1/4...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 31.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 47.0, "total_ms": 47.0, "upstream_first_frame_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Upstream non-stream retry 1/5 due to: offline
+[mimoly] request_timing={"attempt_1_ms": 0.0, "attempt_2_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 16.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}ok
+test_named_error_event_aborts_and_status_classifies (test_agent_responsiveness.NonstreamFrameProbeTests.test_named_error_event_aborts_and_status_classifies) ... ok
+test_native_tool_call_with_eof_is_accepted (test_agent_responsiveness.NonstreamFrameProbeTests.test_native_tool_call_with_eof_is_accepted) ... ok
+test_native_tool_then_stall_is_bounded_in_both_modes (test_agent_responsiveness.NonstreamFrameProbeTests.test_native_tool_then_stall_is_bounded_in_both_modes) ... ok
+test_normal_answer_with_done_is_not_a_reasoning_stall (test_agent_responsiveness.NonstreamFrameProbeTests.test_normal_answer_with_done_is_not_a_reasoning_stall) ... ok
+test_standard_text_tool_call_with_done_is_accepted (test_agent_responsiveness.NonstreamFrameProbeTests.test_standard_text_tool_call_with_done_is_accepted) ... ok
+test_tool_frame_then_stalled_read_expires_without_returning_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_tool_frame_then_stalled_read_expires_without_returning_tool) ... ok
+test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) ... ok
+test_cache_fingerprints_description_and_schema (test_agent_responsiveness.ProtocolTests.test_cache_fingerprints_description_and_schema) ... ok
+test_clear_example_introductions_stay_non_executable (test_agent_responsiveness.ProtocolTests.test_clear_example_introductions_stay_non_executable) ... ok
+test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) ... ok
+test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) ... ok
+test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) ... ok
+test_instruction_roles_remain_distinguishable (test_agent_responsiveness.ProtocolTests.test_instruction_roles_remain_distinguishable) ... ok
+test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) ... ok
+test_json_string_invocations_are_not_executed (test_agent_responsiveness.ProtocolTests.test_json_string_invocations_are_not_executed) ... ok
+test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) ... ok
+test_malformed_xml_alone_is_not_an_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_alone_is_not_an_invocation) ... ok
+test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) ... ok
+test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) ... ok
+test_multiple_json_calls_preserved (test_agent_responsiveness.ProtocolTests.test_multiple_json_calls_preserved) ... ok
+test_network_deny_is_fail_closed (test_agent_responsiveness.ProtocolTests.test_network_deny_is_fail_closed) ... ok
+test_read_pagination_preserved (test_agent_responsiveness.ProtocolTests.test_read_pagination_preserved) ... ok
+test_retry_backoff_never_exceeds_remaining_or_final_attempt (test_agent_responsiveness.ProtocolTests.test_retry_backoff_never_exceeds_remaining_or_final_attempt) ... ok
+test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) ... ok
+test_wrapped_json_fence_is_one_call (test_agent_responsiveness.ProtocolTests.test_wrapped_json_fence_is_one_call) ... ok
+test_real_release_close_twice_is_idempotent (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_close_twice_is_idempotent) ... ok
+test_real_release_does_not_unlock_owned_lock_before_lifecycle (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_does_not_unlock_owned_lock_before_lifecycle) ... ok
+test_real_release_http_early_return (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_http_early_return) ... ok
+test_real_release_queued_cancel_keeps_owner_lock (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_queued_cancel_keeps_owner_lock) ... ok
+test_real_release_queued_timeout_keeps_owner_lock (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_queued_timeout_keeps_owner_lock) ... ok
+test_real_release_stream_normal_close (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_stream_normal_close) ... ok
+test_real_release_success_and_cache_hit (test_agent_responsiveness.RealPoolLifecycleTests.test_real_release_success_and_cache_hit) ... ok
+test_cancel_configured_request_releases_owned_resources (test_agent_responsiveness.RequestTimeoutPolicyTests.test_cancel_configured_request_releases_owned_resources) ... ok
+test_first_attempt_allowed_after_queue_exceeds_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_first_attempt_allowed_after_queue_exceeds_retry_window) ... ok
+test_invalid_env_is_explicit_server_configuration_error (test_agent_responsiveness.RequestTimeoutPolicyTests.test_invalid_env_is_explicit_server_configuration_error) ... ok
+test_positive_finite_env_and_default (test_agent_responsiveness.RequestTimeoutPolicyTests.test_positive_finite_env_and_default) ... ok
+test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) ... ok
+test_successful_inference_can_outlive_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_successful_inference_can_outlive_retry_window) ... ok
+test_total_env_deadline_still_bounds_read_and_cancellation (test_agent_responsiveness.RequestTimeoutPolicyTests.test_total_env_deadline_still_bounds_read_and_cancellation) ... ok
+
+----------------------------------------------------------------------
+Ran 59 tests in 1.490s
+
+OK
+
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 16.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "total_ms": 46.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 63.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 63.0, "upstream_first_frame_ms": 0.0}
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] request_timing={"total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 47.0, "first_emission_ms": 63.0, "total_ms": 63.0, "upstream_first_frame_ms": 63.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 16.0, "total_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Upstream emitted busy phrase in frame: '服务器繁忙'
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 31.0, "total_ms": 31.0, "upstream_first_frame_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 31.0, "total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 31.0, "total_ms": 31.0, "upstream_first_frame_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 31.0, "total_ms": 31.0, "upstream_first_frame_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 31.0}

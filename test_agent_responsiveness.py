@@ -612,22 +612,238 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(client.responses[0].closed)
         self.assertFalse(self.account.get_lock().locked())
 
-    async def test_error_frame_without_content_then_stall_is_not_surfaced(self):
-        client = self.wire_client([{'error': {'message': 'offline sentinel failure'}}, 1.0])
-        result = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), 0.2)
-        self.assertEqual(result.status_code, 504)
-        self.assertNotIn('sentinel', result.body.decode())
-        self.assertEqual(len(client.queries), 1)
+    async def test_error_frames_abort_before_stall_without_fabricated_success(self):
+        for streaming in (False, True):
+            for frame in ({'error': {'message': 'PRIVATE_SENTINEL'}},
+                          {'error': {}}, {'type': 'error', 'message': 'PRIVATE_SENTINEL'}):
+                with self.subTest(stream=streaming, frame=frame):
+                    self.body['stream'] = streaming
+                    client = self.wire_client([frame, 1.0])
+                    result = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), 0.2)
+                    output = await asyncio.wait_for(self.collect(result), 0.2)
+                    if not streaming:
+                        self.assertEqual(result.status_code, 502)
+                    self.assertIn('upstream_error', output)
+                    self.assertIn('gateway_error', output)
+                    self.assertNotIn('PRIVATE_SENTINEL', output)
+                    self.assertNotIn('tool_calls', output)
+                    self.assertNotIn('deadline exceeded', output)
+                    self.assertEqual(len(client.queries), 1)
+                    self.assertTrue(client.responses[0].closed)
+                    self.assertFalse(self.account.get_lock().locked())
 
-    async def test_dialog_id_event_state_is_sticky_without_next_event(self):
-        client = self.wire_client(['event: dialogId', {'content': '12345'}, '',
-                                  {'type': 'text', 'content': '42'}, 'data: [DONE]'])
-        # Current reader retains dialogId until another event: line; characterize
-        # this gap without a tool interceptor retry obscuring the missing answer.
+    async def test_named_error_event_aborts_and_status_classifies(self):
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.wire_client(['event: error', {'message': 'PRIVATE_SENTINEL', 'status': 400}, 1.0])
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                if not streaming:
+                    self.assertEqual(result.status_code, 400)
+                self.assertIn('client_error', output)
+                self.assertNotIn('PRIVATE_SENTINEL', output)
+                self.assertEqual(len(client.queries), 1)
+
+    async def test_explicit_retryable_status_is_terminal_without_verified_replay_contract(self):
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.wire_client([{'error': {'status': 503, 'message': 'PRIVATE_SENTINEL'}}, 1.0])
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                if not streaming:
+                    self.assertEqual(result.status_code, 503)
+                self.assertIn('server_error', output)
+                self.assertNotIn('PRIVATE_SENTINEL', output)
+                self.assertEqual(len(client.queries), 1)
+                self.assertTrue(client.responses[0].closed)
+
+    async def test_error_after_visible_answer_does_not_retry(self):
         self.body.pop('tools')
-        result = await m.handle_chat_completion(self.body, request())
-        self.assertEqual(json.loads(result.body)['choices'][0]['message']['content'], '')
+        self.body['stream'] = True
+        client = self.wire_client([{'type': 'text', 'content': 'VISIBLE_PREFIX'}, '',
+                                  {'error': {'status': 503}}, 1.0])
+        output = await self.collect(await m.handle_chat_completion(self.body, request()))
+        self.assertIn('VISIBLE_PREFIX', output)
+        self.assertIn('upstream_error', output)
+        self.assertNotIn('"finish_reason": "stop"', output)
         self.assertEqual(len(client.queries), 1)
+        self.assertTrue(client.responses[0].closed)
+
+    async def test_native_tool_then_stall_is_bounded_in_both_modes(self):
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]}, 1.0])
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                self.assertIn('deadline exceeded', output)
+                self.assertNotIn('tool_calls', output)
+                self.assertTrue(client.responses[0].closed)
+                self.assertFalse(self.account.get_lock().locked())
+
+    async def test_error_after_buffered_tool_never_returns_tool(self):
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                self.wire_client([{'toolCalls': [{'name': 'read_file', 'arguments': '{"path":"a.py"}'}]},
+                                  {'error': 'PRIVATE_SENTINEL'}, 1.0])
+                output = await self.collect(await m.handle_chat_completion(self.body, request()))
+                self.assertIn('upstream_error', output)
+                self.assertNotIn('tool_calls', output)
+
+    async def test_done_substring_in_json_is_not_a_terminator(self):
+        self.body.pop('tools')
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                self.wire_client([{'type': 'text', 'content': 'literal [DONE] text'}, 'data: [DONE]'])
+                output = await self.collect(await m.handle_chat_completion(self.body, request()))
+                self.assertIn('literal [DONE] text', output)
+
+    async def test_dialog_id_event_resets_at_blank_boundary(self):
+        self.body.pop('tools')
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.wire_client(['event: dialogId', {'content': '12345'}, '',
+                                          ': comment', '',
+                                          {'type': 'text', 'content': 'BOUNDARY_ANSWER'}, 'data: [DONE]'])
+                output = await self.collect(await m.handle_chat_completion(self.body, request()))
+                self.assertIn('BOUNDARY_ANSWER', output)
+                self.assertNotIn('12345', output)
+                self.assertEqual(len(client.queries), 1)
+                self.assertTrue(client.responses[0].closed)
+                self.assertFalse(self.account.get_lock().locked())
+
+    async def test_dialog_id_event_still_applies_until_blank_boundary(self):
+        self.body.pop('tools')
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                self.wire_client(['event: dialogId', {'type': 'text', 'content': 'HIDDEN_ID'},
+                                  ': comment', {'type': 'text', 'content': 'ALSO_HIDDEN'}, '',
+                                  {'type': 'text', 'content': 'VISIBLE'}, 'data: [DONE]'])
+                output = await self.collect(await m.handle_chat_completion(self.body, request()))
+                self.assertIn('VISIBLE', output)
+                self.assertNotIn('HIDDEN', output)
+
+
+class RequestTimeoutPolicyTests(unittest.IsolatedAsyncioTestCase):
+    setUp = LifecycleTests.setUp
+    client = LifecycleTests.client
+    collect = LifecycleTests.collect
+
+    def short_retry_window(self):
+        def budget(**kwargs):
+            kwargs['deadline'] = 0.005
+            return RetryBudget(**kwargs)
+        self.stack.enter_context(patch.object(m, 'RetryBudget', side_effect=budget))
+
+    def test_positive_finite_env_and_default(self):
+        with patch.dict(m.os.environ, {}, clear=True):
+            for model in ('mimo-v2.6-pro', 'mimo-v2.5-pro-ultraspeed'):
+                self.assertEqual(m._request_budget_seconds(model), 180.0)
+        for raw in ('0', '-1', 'nan', 'NaN', 'inf', '-inf', 'Infinity', '', 'garbage'):
+            with self.subTest(raw=raw), patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': raw}):
+                with self.assertRaisesRegex(ValueError, 'MIMOLY_REQUEST_TIMEOUT_SECONDS'):
+                    m._request_budget_seconds('mimo-v2.6-pro')
+        with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': '12.5'}):
+            self.assertEqual(m._request_budget_seconds('mimo-v2.6-pro'), 12.5)
+
+    async def test_invalid_env_is_explicit_server_configuration_error(self):
+        before = m._ADMISSION.in_flight
+        with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': 'nan'}):
+            result = await m.handle_chat_completion(self.body, request())
+        self.assertEqual(result.status_code, 500)
+        self.assertIn('configuration_error', result.body.decode())
+        self.upstream.assert_not_called()
+        self.assertEqual(m._ADMISSION.in_flight, before)
+
+    async def test_successful_inference_can_outlive_retry_window(self):
+        self.short_retry_window()
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.client([[0.02, 'LONG_SUCCESS']])
+                with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': '0.2'}):
+                    result = await m.handle_chat_completion(self.body, request())
+                    output = await self.collect(result)
+                self.assertIn('LONG_SUCCESS', output)
+                self.assertNotIn('error', output)
+                self.assertEqual(len(client.queries), 1)
+                self.assertTrue(client.responses[0].closed)
+
+    async def test_first_attempt_allowed_after_queue_exceeds_retry_window(self):
+        self.short_retry_window()
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                lock = self.account.get_lock()
+                await lock.acquire()
+                client = self.client([['QUEUED_SUCCESS']])
+                async def unlock():
+                    await asyncio.sleep(0.02)
+                    lock.release()
+                unlocker = asyncio.create_task(unlock())
+                try:
+                    with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': '0.2'}):
+                        output = await self.collect(await m.handle_chat_completion(self.body, request()))
+                    self.assertIn('QUEUED_SUCCESS', output)
+                    self.assertEqual(len(client.queries), 1)
+                finally:
+                    await unlocker
+
+    async def test_retry_window_exhaustion_is_explicit_for_busy_and_timeout(self):
+        self.short_retry_window()
+        for streaming in (False, True):
+            for failure in ('服务器繁忙', httpx.ReadTimeout('offline timeout')):
+                with self.subTest(stream=streaming, failure=str(failure)):
+                    self.body['stream'] = streaming
+                    client = self.client([[0.02, failure]])
+                    with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': '0.2'}):
+                        result = await m.handle_chat_completion(self.body, request())
+                        output = await self.collect(result)
+                    if not streaming:
+                        self.assertIn(result.status_code, (502, 503, 504))
+                    self.assertIn('error', output)
+                    self.assertNotIn('"finish_reason": "stop"', output)
+                    self.assertEqual(len(client.queries), 1)
+                    self.assertTrue(client.responses[0].closed)
+                    self.assertFalse(self.account.get_lock().locked())
+
+    async def test_cancel_configured_request_releases_owned_resources(self):
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.client([[1.0, 'NEVER_RETURN']])
+                with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': '0.2'}):
+                    async def consume():
+                        return await self.collect(await m.handle_chat_completion(self.body, request()))
+                    task = asyncio.create_task(consume())
+                    await asyncio.sleep(0.01)
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                self.assertTrue(client.responses[0].closed)
+                self.assertFalse(self.account.get_lock().locked())
+                self.assertEqual(m._ADMISSION.in_flight, 0)
+
+    async def test_total_env_deadline_still_bounds_read_and_cancellation(self):
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.client([[1.0, 'NEVER_RETURN']])
+                with patch.dict(m.os.environ, {'MIMOLY_REQUEST_TIMEOUT_SECONDS': '0.02'}):
+                    result = await m.handle_chat_completion(self.body, request())
+                    output = await asyncio.wait_for(self.collect(result), 0.2)
+                if not streaming:
+                    self.assertEqual(result.status_code, 504)
+                self.assertIn('deadline exceeded', output)
+                self.assertNotIn('NEVER_RETURN', output)
+                self.assertTrue(client.responses[0].closed)
+                self.assertFalse(self.account.get_lock().locked())
 
 
 if __name__ == '__main__':
