@@ -76,6 +76,17 @@ class ProtocolTests(unittest.TestCase):
             self.assertIn('[System]', prompt)
             self.assertIn('[Developer]', prompt)
 
+    def test_tool_catalogue_explains_external_execution_without_fake_results(self):
+        for framework in m.AGENT_PROFILES:
+            with self.subTest(framework=framework):
+                prompt = m.build_agent_prompt([{'role': 'user', 'content': 'Read a.py'}], TOOLS, framework=framework)
+                self.assertIn('external client executor', prompt)
+                self.assertIn('not native Xiaomi tools', prompt)
+                self.assertIn('Do not invent tool results', prompt)
+                self.assertIn('explicit no-tool requests', prompt)
+        plain = m.build_agent_prompt([{'role': 'user', 'content': 'Write a poem without tools'}], None)
+        self.assertNotIn('external client executor', plain)
+
     def test_read_pagination_preserved(self):
         self.assertEqual(m.normalize_tool_args('read_file', {'path': 'a.py', 'offset': 51, 'limit': 25}, available_tools=TOOLS), {'path': 'a.py', 'offset': 51, 'limit': 25})
 
@@ -683,6 +694,28 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(client.responses[0].closed)
                 self.assertFalse(self.account.get_lock().locked())
 
+    async def test_captured_terminal_call_followed_by_upstream_error_is_not_execution(self):
+        # Exact synthetic tool-call payload observed after the bridge clarification.
+        self.body['tools'] = [{'type': 'function', 'function': {
+            'name': 'terminal', 'parameters': {'type': 'object',
+            'properties': {'command': {'type': 'string'}}, 'required': ['command']}}}]
+        for streaming in (False, True):
+            with self.subTest(stream=streaming):
+                self.body['stream'] = streaming
+                client = self.wire_client(['event: message', {'toolCalls': [{
+                    'id': 'call_synthetic', 'type': 'function', 'name': 'terminal',
+                    'arguments': '{"command": "python -c \\"print(19+23)\\""}{}'}]}, '',
+                    'event: error', {'type': 'text', 'content': '服务器繁忙，请稍后再试'}, ''])
+                result = await m.handle_chat_completion(self.body, request())
+                output = await self.collect(result)
+                if not streaming:
+                    self.assertEqual(result.status_code, 502)
+                self.assertIn('upstream_error', output)
+                self.assertNotIn('tool_calls', output)
+                self.assertNotIn('print(19+23)', output)
+                self.assertEqual(len(client.queries), 1)
+                self.assertTrue(client.responses[0].closed)
+
     async def test_error_after_buffered_tool_never_returns_tool(self):
         for streaming in (False, True):
             with self.subTest(stream=streaming):
@@ -701,6 +734,31 @@ class NonstreamFrameProbeTests(unittest.IsolatedAsyncioTestCase):
                 self.wire_client([{'type': 'text', 'content': 'literal [DONE] text'}, 'data: [DONE]'])
                 output = await self.collect(await m.handle_chat_completion(self.body, request()))
                 self.assertIn('literal [DONE] text', output)
+
+    async def test_captured_untyped_numeric_message_survives_in_both_modes(self):
+        # Live 2026-10-16: event: message, keys content/messageType, no type.
+        # The dialog ID arrived in its own event; numeric answer was exactly 42.
+        self.body.pop('tools')
+        self.body['messages'] = [{'role': 'user', 'content': 'Berapa 19 + 23? Jawab angkanya saja, tanpa tool.'}]
+        for streaming in (False, True):
+            for answer in ('42', '123456', '0'):
+                with self.subTest(stream=streaming, answer=answer):
+                    self.body['messages'][0]['content'] = f'Jawab {answer} saja, tanpa tool.'
+                    self.body['stream'] = streaming
+                    self.wire_client(['event: dialogId', {'content': '987654'}, '',
+                                      'event: message', {'reasoningContent': 'Synthetic reasoning'}, '',
+                                      'event: message', {'content': answer}, '',
+                                      'event: finish', {'content': '[DONE]'}, ''])
+                    result = await m.handle_chat_completion(self.body, request())
+                    output = await self.collect(result)
+                    if streaming:
+                        chunks = [json.loads(line[5:]) for line in output.splitlines() if line.startswith('data:') and line[5:].strip() != '[DONE]']
+                        text = ''.join(c['choices'][0]['delta'].get('content', '') or '' for c in chunks if 'choices' in c)
+                    else:
+                        text = json.loads(output)['choices'][0]['message']['content']
+                    self.assertEqual(text, answer)
+                    self.assertNotIn('987654', output)
+                    self.assertNotIn('Synthetic reasoning', output)
 
     async def test_dialog_id_event_resets_at_blank_boundary(self):
         self.body.pop('tools')

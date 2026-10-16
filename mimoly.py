@@ -1750,7 +1750,16 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         )
         catalogue_text = mask_urls_for_upstream(catalogue_text)
         intro_text = profile["tool_intro"].replace("{tool_desc}", catalogue_text)
-        prompt_lines.append(intro_text)
+        prompt_lines.append(
+            "[External tool bridge]\n"
+            "The tools below are supplied by an external client executor, not native Xiaomi tools. "
+            "You only emit the requested tool-call text in the format below; the gateway parses it "
+            "and the client executes it, then returns the real observation on a later turn. "
+            "A missing native terminal does not prevent requesting the client's declared terminal tool. "
+            "Do not invent tool results or claim execution before an observation arrives. "
+            "If a requested tool is not declared, say so truthfully. Respect explicit no-tool requests "
+            "and answer directly when a tool is not needed.\n\n" + intro_text
+        )
 
     # Goal & status guidance
     goal_block = ""
@@ -4119,8 +4128,8 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                                 continue
 
                                             content_piece = parsed.get("content", "")
-                                            # Ignore dialog ID event (both standard cluster and FastChat 6-digit IDs)
-                                            if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
+                                            # IDs are identified by their SSE event, never by numeric content.
+                                            if last_event == "dialogId":
                                                 continue
 
                                             if not content_piece:
@@ -4645,7 +4654,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                 continue
 
                             content_piece = parsed.get("content", "")
-                            if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
+                            if last_event == "dialogId":
                                 continue
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
