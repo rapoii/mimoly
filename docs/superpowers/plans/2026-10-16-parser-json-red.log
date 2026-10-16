@@ -1,0 +1,81 @@
+test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) ... 
+  test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) (text='{"name": "write_file", "arguments": {"path": "README.md", "content": "Before\\n```python\\nprint(\\"quoted\\")\\n```\\nAfter <tool_call> <function=read_file>"}}') ... FAIL
+  test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) (text='<tool_call>{"name": "write_file", "arguments": {"path": "README.md", "content": "Before\\n```python\\nprint(\\"quoted\\")\\n```\\nAfter <tool_call> <function=read_file>"}}</tool_call>') ... FAIL
+  test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) (text='```json\n{"name": "write_file", "arguments": {"path": "README.md", "content": "Before\\n```python\\nprint(\\"quoted\\")\\n```\\nAfter <tool_call> <function=read_file>"}}\n```') ... FAIL
+
+======================================================================
+FAIL: test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) (text='{"name": "write_file", "arguments": {"path": "README.md", "content": "Before\\n```python\\nprint(\\"quoted\\")\\n```\\nAfter <tool_call> <function=read_file>"}}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 170, in test_json_string_protocol_markers_are_content
+    self.assertEqual(calls, [call])
+AssertionError: Lists differ: [] != [{'name': 'write_file', 'arguments': {'pat[107 chars]>'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'write_file', 'arguments': {'path': 'README.md', 'content': 'Before\n```python\nprint("quoted")\n```\nAfter <tool_call> <function=read_file>'}}
+
+- []
++ [{'arguments': {'content': 'Before\n'
++                            '```python\n'
++                            'print("quoted")\n'
++                            '```\n'
++                            'After <tool_call> <function=read_file>',
++                 'path': 'README.md'},
++   'name': 'write_file'}]
+
+======================================================================
+FAIL: test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) (text='<tool_call>{"name": "write_file", "arguments": {"path": "README.md", "content": "Before\\n```python\\nprint(\\"quoted\\")\\n```\\nAfter <tool_call> <function=read_file>"}}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 170, in test_json_string_protocol_markers_are_content
+    self.assertEqual(calls, [call])
+AssertionError: Lists differ: [{'na[67 chars]efore'}}] != [{'na[67 chars]efore\n```python\nprint("quoted")\n```\nAfter [31 chars]>'}}]
+
+First differing element 0:
+{'nam[66 chars]efore'}}
+{'nam[66 chars]efore\n```python\nprint("quoted")\n```\nAfter [30 chars]e>'}}
+
+- [{'arguments': {'content': 'Before', 'path': 'README.md'},
++ [{'arguments': {'content': 'Before\n'
++                            '```python\n'
++                            'print("quoted")\n'
++                            '```\n'
++                            'After <tool_call> <function=read_file>',
++                 'path': 'README.md'},
+    'name': 'write_file'}]
+
+======================================================================
+FAIL: test_json_string_protocol_markers_are_content (test_agent_responsiveness.ProtocolTests.test_json_string_protocol_markers_are_content) (text='```json\n{"name": "write_file", "arguments": {"path": "README.md", "content": "Before\\n```python\\nprint(\\"quoted\\")\\n```\\nAfter <tool_call> <function=read_file>"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 170, in test_json_string_protocol_markers_are_content
+    self.assertEqual(calls, [call])
+AssertionError: Lists differ: [] != [{'name': 'write_file', 'arguments': {'pat[107 chars]>'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'write_file', 'arguments': {'path': 'README.md', 'content': 'Before\n```python\nprint("quoted")\n```\nAfter <tool_call> <function=read_file>'}}
+
+- []
++ [{'arguments': {'content': 'Before\n'
++                            '```python\n'
++                            'print("quoted")\n'
++                            '```\n'
++                            'After <tool_call> <function=read_file>',
++                 'path': 'README.md'},
++   'name': 'write_file'}]
+
+----------------------------------------------------------------------
+Ran 1 test in 0.032s
+
+FAILED (failures=3)
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]

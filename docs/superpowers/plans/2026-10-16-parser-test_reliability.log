@@ -1,0 +1,73 @@
+[unit] error taxonomy
+  PASS  classify_status exists
+  PASS  429 -> rate_limit
+  PASS  401 -> auth
+  PASS  403 -> auth
+  PASS  500 -> server_error
+  PASS  503 -> server_error
+  PASS  400 -> client_error
+  PASS  200 -> none/None
+  PASS  is_retryable exists
+  PASS  rate_limit retryable
+  PASS  network retryable
+  PASS  server_error retryable
+  PASS  auth NOT retryable on same key
+  PASS  client_error NOT retryable
+  PASS  should_rotate_key exists
+  PASS  auth rotates key
+  PASS  rate_limit rotates key
+  PASS  server_error does NOT rotate
+  PASS  network does NOT rotate
+[unit] retry budget
+  PASS  RetryBudget exists
+  PASS  first retry allowed
+  PASS  third attempt (attempt=2) not retried
+  PASS  delay within [0, base]
+  PASS  full jitter produces varying delays
+  PASS  expired budget refuses retry
+  PASS  expired budget delay is 0
+[unit] account pool & circuit breaker
+  PASS  AccountPool exists
+  PASS  pool loads 3 accounts
+  PASS  healthy_count starts at 3
+  PASS  acquire returns an account
+  PASS  least-inflight spreads load
+  PASS  success keeps account healthy
+  PASS  auth failure parks key
+  PASS  auth failure sets cooldown
+  PASS  parked key not acquired again
+  PASS  breaker still closed below threshold
+  PASS  breaker still closed below threshold
+  PASS  breaker opens after max_failures
+  PASS  cooldown is exponential-capped
+  PASS  snapshot is a list of dicts
+  PASS  snapshot exposes health fields
+[unit] admission control
+  PASS  AdmissionController exists
+  PASS  first acquire ok
+  PASS  second acquire ok
+  PASS  third acquire rejected (fast 503)
+  PASS  rejected counter increments
+  PASS  release frees a slot
+  PASS  in_flight returns to 0
+  PASS  release never goes negative
+[unit] exact TTL cache
+  PASS  TTLCache exists
+  PASS  make_key deterministic
+  PASS  cache hit
+  PASS  maxsize enforced
+  PASS  make_key ignores volatile keys
+  PASS  expired entry misses
+[unit] rate limiter
+  PASS  RateLimiter exists
+  PASS  first three allowed
+  PASS  fourth rejected
+  PASS  different key unaffected
+  PASS  rejected counter increments
+  PASS  retry_after positive
+  PASS  limit=0 means unlimited
+  PASS  first allowed
+  PASS  second blocked in window
+  PASS  allowed again after window
+
+RESULT: all checks passed

@@ -1,0 +1,362 @@
+test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) ...
+  test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=False) ...FAIL
+  test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=True) ...FAIL
+test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) ...
+  test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=False) ...FAIL
+  test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=True) ...FAIL
+test_done_substring_in_json_is_not_a_terminator (test_agent_responsiveness.NonstreamFrameProbeTests.test_done_substring_in_json_is_not_a_terminator) ...
+  test_done_substring_in_json_is_not_a_terminator (test_agent_responsiveness.NonstreamFrameProbeTests.test_done_substring_in_json_is_not_a_terminator) (stream=False) ...FAIL
+  test_done_substring_in_json_is_not_a_terminator (test_agent_responsiveness.NonstreamFrameProbeTests.test_done_substring_in_json_is_not_a_terminator) (stream=True) ...FAIL
+test_error_after_buffered_tool_never_returns_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_buffered_tool_never_returns_tool) ...
+  test_error_after_buffered_tool_never_returns_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_buffered_tool_never_returns_tool) (stream=False) ...FAIL
+  test_error_after_buffered_tool_never_returns_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_buffered_tool_never_returns_tool) (stream=True) ...FAIL
+test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) ...
+  test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=False, frame={'error': {'message': 'PRIVATE_SENTINEL'}}) ...FAIL
+  test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=False, frame={'error': {}}) ...FAIL
+  test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=False, frame={'type': 'error', 'message': 'PRIVATE_SENTINEL'}) ...FAIL
+  test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=True, frame={'error': {'message': 'PRIVATE_SENTINEL'}}) ...FAIL
+  test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=True, frame={'error': {}}) ...FAIL
+  test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=True, frame={'type': 'error', 'message': 'PRIVATE_SENTINEL'}) ...FAIL
+test_named_error_event_aborts_and_status_classifies (test_agent_responsiveness.NonstreamFrameProbeTests.test_named_error_event_aborts_and_status_classifies) ...
+  test_named_error_event_aborts_and_status_classifies (test_agent_responsiveness.NonstreamFrameProbeTests.test_named_error_event_aborts_and_status_classifies) (stream=False) ...FAIL
+  test_named_error_event_aborts_and_status_classifies (test_agent_responsiveness.NonstreamFrameProbeTests.test_named_error_event_aborts_and_status_classifies) (stream=True) ...FAIL
+test_native_tool_call_with_eof_is_accepted (test_agent_responsiveness.NonstreamFrameProbeTests.test_native_tool_call_with_eof_is_accepted) ...ok
+test_normal_answer_with_done_is_not_a_reasoning_stall (test_agent_responsiveness.NonstreamFrameProbeTests.test_normal_answer_with_done_is_not_a_reasoning_stall) ...ok
+test_standard_text_tool_call_with_done_is_accepted (test_agent_responsiveness.NonstreamFrameProbeTests.test_standard_text_tool_call_with_done_is_accepted) ...ok
+test_tool_frame_then_stalled_read_expires_without_returning_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_tool_frame_then_stalled_read_expires_without_returning_tool) ...ok
+test_first_attempt_allowed_after_queue_exceeds_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_first_attempt_allowed_after_queue_exceeds_retry_window) ...
+  test_first_attempt_allowed_after_queue_exceeds_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_first_attempt_allowed_after_queue_exceeds_retry_window) (stream=False) ...FAIL
+  test_first_attempt_allowed_after_queue_exceeds_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_first_attempt_allowed_after_queue_exceeds_retry_window) (stream=True) ...FAIL
+test_invalid_env_is_explicit_server_configuration_error (test_agent_responsiveness.RequestTimeoutPolicyTests.test_invalid_env_is_explicit_server_configuration_error) ...FAIL
+test_positive_finite_env_and_default (test_agent_responsiveness.RequestTimeoutPolicyTests.test_positive_finite_env_and_default) ...FAIL
+test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) ...
+  test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) (stream=False, failure='服务器繁忙') ...FAIL
+  test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) (stream=False, failure='offline timeout') ...FAIL
+  test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) (stream=True, failure='服务器繁忙') ...FAIL
+test_successful_inference_can_outlive_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_successful_inference_can_outlive_retry_window) ...ok
+test_total_env_deadline_still_bounds_read_and_cancellation (test_agent_responsiveness.RequestTimeoutPolicyTests.test_total_env_deadline_still_bounds_read_and_cancellation) ...
+  test_total_env_deadline_still_bounds_read_and_cancellation (test_agent_responsiveness.RequestTimeoutPolicyTests.test_total_env_deadline_still_bounds_read_and_cancellation) (stream=False) ...FAIL
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "total_ms": 31.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 63.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 62.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "total_ms": 46.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 16.0, "first_emission_ms": 16.0, "total_ms": 16.0, "upstream_first_frame_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=False, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"first_emission_ms": 32.0, "total_ms": 32.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"first_emission_ms": 16.0, "total_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Upstream emitted busy phrase in frame: '服务器繁忙'
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 47.0, "total_ms": 47.0, "upstream_first_frame_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 31.0, "total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 47.0, "total_ms": 47.0, "upstream_first_frame_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 31.0, "total_ms": 31.0, "upstream_first_frame_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 1000.0, "total_ms": 1000.0, "upstream_first_frame_ms": 1000.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False  test_total_env_deadline_still_bounds_read_and_cancellation (test_agent_responsiveness.RequestTimeoutPolicyTests.test_total_env_deadline_still_bounds_read_and_cancellation) (stream=True) ...ERROR
+
+======================================================================
+ERROR: test_total_env_deadline_still_bounds_read_and_cancellation (test_agent_responsiveness.RequestTimeoutPolicyTests.test_total_env_deadline_still_bounds_read_and_cancellation) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 267, in collect
+    async for chunk in response.body_iterator:
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3558, in _admitting_iter
+    async for _chunk in _inner_iter:
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3649, in bounded_stream
+    chunk = await lifecycle.run(iterator.__anext__())
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3634, in run
+    return await asyncio.wait_for(awaitable, timeout=max(0.0, remaining))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 4007, in sse_generator
+    async for line in line_iter:
+  File "D:\Software\Hermes Workspace\projects\mimoly\mimoly.py", line 3689, in _heartbeat_lines
+    done, _ = await asyncio.wait({pending}, timeout=_HEARTBEAT_INTERVAL)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 464, in wait
+    return await _wait(fs, timeout, return_when, loop)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 550, in _wait
+    await waiter
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 785, in test_total_env_deadline_still_bounds_read_and_cancellation
+    output = await asyncio.wait_for(self.collect(result), 0.2)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\tasks.py", line 519, in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+======================================================================
+FAIL: test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 676, in test_dialog_id_event_resets_at_blank_boundary
+    self.assertIn('BOUNDARY_ANSWER', output)
+AssertionError: 'BOUNDARY_ANSWER' not found in '{"id":"chatcmpl-3315e00b7adf","object":"chat.completion","created":1792137596,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 676, in test_dialog_id_event_resets_at_blank_boundary
+    self.assertIn('BOUNDARY_ANSWER', output)
+AssertionError: 'BOUNDARY_ANSWER' not found in 'data: {"id": "chatcmpl-5be01bfaac8b", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-5be01bfaac8b", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-5be01bfaac8b", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 691, in test_dialog_id_event_still_applies_until_blank_boundary
+    self.assertIn('VISIBLE', output)
+AssertionError: 'VISIBLE' not found in '{"id":"chatcmpl-dc9dfaf90319","object":"chat.completion","created":1792137596,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 691, in test_dialog_id_event_still_applies_until_blank_boundary
+    self.assertIn('VISIBLE', output)
+AssertionError: 'VISIBLE' not found in 'data: {"id": "chatcmpl-666dea835d40", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-666dea835d40", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-666dea835d40", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_done_substring_in_json_is_not_a_terminator (test_agent_responsiveness.NonstreamFrameProbeTests.test_done_substring_in_json_is_not_a_terminator) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 665, in test_done_substring_in_json_is_not_a_terminator
+    self.assertIn('literal [DONE] text', output)
+AssertionError: 'literal [DONE] text' not found in '{"id":"chatcmpl-f87f5f9f665f","object":"chat.completion","created":1792137596,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_done_substring_in_json_is_not_a_terminator (test_agent_responsiveness.NonstreamFrameProbeTests.test_done_substring_in_json_is_not_a_terminator) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 665, in test_done_substring_in_json_is_not_a_terminator
+    self.assertIn('literal [DONE] text', output)
+AssertionError: 'literal [DONE] text' not found in 'data: {"id": "chatcmpl-f8cf82b3d887", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-f8cf82b3d887", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-f8cf82b3d887", "object": "chat.completion.chunk", "created": 1792137596, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_error_after_buffered_tool_never_returns_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_buffered_tool_never_returns_tool) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 655, in test_error_after_buffered_tool_never_returns_tool
+    self.assertIn('upstream_error', output)
+AssertionError: 'upstream_error' not found in '{"error":"Request deadline exceeded"}'
+
+======================================================================
+FAIL: test_error_after_buffered_tool_never_returns_tool (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_after_buffered_tool_never_returns_tool) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 655, in test_error_after_buffered_tool_never_returns_tool
+    self.assertIn('upstream_error', output)
+AssertionError: 'upstream_error' not found in 'data: {"error":{"message":"Request deadline exceeded","type":"timeout"}}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=False, frame={'error': {'message': 'PRIVATE_SENTINEL'}})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 625, in test_error_frames_abort_before_stall_without_fabricated_success
+    self.assertEqual(result.status_code, 502)
+AssertionError: 504 != 502
+
+======================================================================
+FAIL: test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=False, frame={'error': {}})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 625, in test_error_frames_abort_before_stall_without_fabricated_success
+    self.assertEqual(result.status_code, 502)
+AssertionError: 504 != 502
+
+======================================================================
+FAIL: test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=False, frame={'type': 'error', 'message': 'PRIVATE_SENTINEL'})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 625, in test_error_frames_abort_before_stall_without_fabricated_success
+    self.assertEqual(result.status_code, 502)
+AssertionError: 504 != 502
+
+======================================================================
+FAIL: test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=True, frame={'error': {'message': 'PRIVATE_SENTINEL'}})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 626, in test_error_frames_abort_before_stall_without_fabricated_success
+    self.assertIn('upstream_error', output)
+AssertionError: 'upstream_error' not found in 'data: {"error":{"message":"Request deadline exceeded","type":"timeout"}}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=True, frame={'error': {}})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 626, in test_error_frames_abort_before_stall_without_fabricated_success
+    self.assertIn('upstream_error', output)
+AssertionError: 'upstream_error' not found in 'data: {"error":{"message":"Request deadline exceeded","type":"timeout"}}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_error_frames_abort_before_stall_without_fabricated_success (test_agent_responsiveness.NonstreamFrameProbeTests.test_error_frames_abort_before_stall_without_fabricated_success) (stream=True, frame={'type': 'error', 'message': 'PRIVATE_SENTINEL'})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 626, in test_error_frames_abort_before_stall_without_fabricated_success
+    self.assertIn('upstream_error', output)
+AssertionError: 'upstream_error' not found in 'data: {"error":{"message":"Request deadline exceeded","type":"timeout"}}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_named_error_event_aborts_and_status_classifies (test_agent_responsiveness.NonstreamFrameProbeTests.test_named_error_event_aborts_and_status_classifies) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 643, in test_named_error_event_aborts_and_status_classifies
+    self.assertEqual(result.status_code, 400)
+AssertionError: 504 != 400
+
+======================================================================
+FAIL: test_named_error_event_aborts_and_status_classifies (test_agent_responsiveness.NonstreamFrameProbeTests.test_named_error_event_aborts_and_status_classifies) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 644, in test_named_error_event_aborts_and_status_classifies
+    self.assertIn('client_error', output)
+AssertionError: 'client_error' not found in 'data: {"error":{"message":"Request deadline exceeded","type":"timeout"}}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_first_attempt_allowed_after_queue_exceeds_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_first_attempt_allowed_after_queue_exceeds_retry_window) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 755, in test_first_attempt_allowed_after_queue_exceeds_retry_window
+    self.assertIn('QUEUED_SUCCESS', output)
+AssertionError: 'QUEUED_SUCCESS' not found in '{"error":"Failed to connect to upstream: Request deadline exceeded"}'
+
+======================================================================
+FAIL: test_first_attempt_allowed_after_queue_exceeds_retry_window (test_agent_responsiveness.RequestTimeoutPolicyTests.test_first_attempt_allowed_after_queue_exceeds_retry_window) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 755, in test_first_attempt_allowed_after_queue_exceeds_retry_window
+    self.assertIn('QUEUED_SUCCESS', output)
+AssertionError: 'QUEUED_SUCCESS' not found in 'data: {"id": "chatcmpl-97fb967b6617", "object": "chat.completion.chunk", "created": 1792137597, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"content": "\\n[Stream connection error: Request deadline exceeded]"}, "finish_reason": "error"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_invalid_env_is_explicit_server_configuration_error (test_agent_responsiveness.RequestTimeoutPolicyTests.test_invalid_env_is_explicit_server_configuration_error)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 721, in test_invalid_env_is_explicit_server_configuration_error
+    self.assertEqual(result.status_code, 500)
+AssertionError: 502 != 500
+
+======================================================================
+FAIL: test_positive_finite_env_and_default (test_agent_responsiveness.RequestTimeoutPolicyTests.test_positive_finite_env_and_default)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 709, in test_positive_finite_env_and_default
+    self.assertEqual(m._request_budget_seconds(model), 180.0)
+AssertionError: 50.0 != 180.0
+
+======================================================================
+FAIL: test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) (stream=False, failure='服务器繁忙')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 771, in test_retry_window_exhaustion_is_explicit_for_busy_and_timeout
+    self.assertIn(result.status_code, (502, 503, 504))
+AssertionError: 200 not found in (502, 503, 504)
+
+======================================================================
+FAIL: test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) (stream=False, failure='offline timeout')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 771, in test_retry_window_exhaustion_is_explicit_for_busy_and_timeout
+    self.assertIn(result.status_code, (502, 503, 504))
+AssertionError: 200 not found in (502, 503, 504)
+
+======================================================================
+FAIL: test_retry_window_exhaustion_is_explicit_for_busy_and_timeout (test_agent_responsiveness.RequestTimeoutPolicyTests.test_retry_window_exhaustion_is_explicit_for_busy_and_timeout) (stream=True, failure='服务器繁忙')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 772, in test_retry_window_exhaustion_is_explicit_for_busy_and_timeout
+    self.assertIn('error', output)
+AssertionError: 'error' not found in 'data: {"id": "chatcmpl-fbb772374948", "object": "chat.completion.chunk", "created": 1792137597, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-fbb772374948", "object": "chat.completion.chunk", "created": 1792137597, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-fbb772374948", "object": "chat.completion.chunk", "created": 1792137597, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_total_env_deadline_still_bounds_read_and_cancellation (test_agent_responsiveness.RequestTimeoutPolicyTests.test_total_env_deadline_still_bounds_read_and_cancellation) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 787, in test_total_env_deadline_still_bounds_read_and_cancellation
+    self.assertEqual(result.status_code, 504)
+AssertionError: 200 != 504
+
+----------------------------------------------------------------------
+Ran 16 tests in 2.326s
+
+FAILED (failures=24, errors=1)
+
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 219.0}

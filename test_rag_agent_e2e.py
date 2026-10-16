@@ -28,6 +28,9 @@ Run:
 
 from __future__ import annotations
 
+from offline_test_support import install_network_deny
+install_network_deny()
+
 import asyncio
 import json
 import os
@@ -53,6 +56,16 @@ async def _noop_wait_throttle(self: Any, min_interval: float = 2.0) -> None:
     pass
 
 mimoly_reliability.PooledAccount.wait_throttle = _noop_wait_throttle
+
+# Never consult real session credentials or construct an upstream client.
+from unittest.mock import Mock
+mimoly.get_session_cookies = lambda: {}
+mimoly.get_shared_client = Mock(side_effect=AssertionError('Unmocked upstream client'))
+
+async def _offline_conversation(*args: Any, **kwargs: Any) -> str:
+    return 'offline'
+
+mimoly.ensure_new_conversation = _offline_conversation
 
 
 # ---------------------------------------------------------------------------

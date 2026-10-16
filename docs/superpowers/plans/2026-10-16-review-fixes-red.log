@@ -1,0 +1,251 @@
+test_cancel_midstream_closes_read_and_releases_resources (test_agent_responsiveness.LifecycleTests.test_cancel_midstream_closes_read_and_releases_resources) ... ok
+test_cancel_queued_releases_account_not_foreign_lock (test_agent_responsiveness.LifecycleTests.test_cancel_queued_releases_account_not_foreign_lock) ... ok
+test_compact_retry_preserves_goal_developer_and_observations (test_agent_responsiveness.LifecycleTests.test_compact_retry_preserves_goal_developer_and_observations) ... ok
+test_deadline_includes_lock_wait (test_agent_responsiveness.LifecycleTests.test_deadline_includes_lock_wait) ... ok
+test_deadline_includes_preprocessing (test_agent_responsiveness.LifecycleTests.test_deadline_includes_preprocessing) ... FAIL
+test_explicit_stream_close_releases_resources (test_agent_responsiveness.LifecycleTests.test_explicit_stream_close_releases_resources) ... ok
+test_global_deadline_bounds_busy_and_nudge_backoff (test_agent_responsiveness.LifecycleTests.test_global_deadline_bounds_busy_and_nudge_backoff) ... ok
+test_idle_heartbeat_does_not_cancel_late_frame (test_agent_responsiveness.LifecycleTests.test_idle_heartbeat_does_not_cancel_late_frame) ... ok
+test_partial_failed_attempt_does_not_contaminate_retry (test_agent_responsiveness.LifecycleTests.test_partial_failed_attempt_does_not_contaminate_retry) ... ok
+test_programming_error_is_not_retried (test_agent_responsiveness.LifecycleTests.test_programming_error_is_not_retried) ... ok
+test_stream_deadline_cancels_pending_read (test_agent_responsiveness.LifecycleTests.test_stream_deadline_cancels_pending_read) ... ok
+test_streamed_answer_is_not_retried (test_agent_responsiveness.LifecycleTests.test_streamed_answer_is_not_retried) ... ok
+test_streamed_reasoning_is_not_mixed_with_retry (test_agent_responsiveness.LifecycleTests.test_streamed_reasoning_is_not_mixed_with_retry) ... ok
+test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) ...
+  test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) (prose='I will inspect the syntax error now.') ... FAIL
+  test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) (prose='I will inspect the sample file now.') ... FAIL
+  test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) (prose='The usage count changed. I will inspect a.py now.') ... FAIL
+test_cache_fingerprints_description_and_schema (test_agent_responsiveness.ProtocolTests.test_cache_fingerprints_description_and_schema) ... ok
+test_clear_example_introductions_stay_non_executable (test_agent_responsiveness.ProtocolTests.test_clear_example_introductions_stay_non_executable) ... ok
+test_conservative_interceptor (test_agent_responsiveness.ProtocolTests.test_conservative_interceptor) ... ok
+test_developer_goal_and_raw_observation_preserved (test_agent_responsiveness.ProtocolTests.test_developer_goal_and_raw_observation_preserved) ... ok
+test_emitted_protocols_parse (test_agent_responsiveness.ProtocolTests.test_emitted_protocols_parse) ... ok
+test_instruction_roles_remain_distinguishable (test_agent_responsiveness.ProtocolTests.test_instruction_roles_remain_distinguishable) ... ok
+test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) ...
+  test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) (invalid='<tool_call>{"name":"unknown","arguments":{}}</tool_call>', valid='```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```') ... FAIL
+  test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) (invalid='<tool_call><function=unknown>{}</function></tool_call>', valid='```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```') ... FAIL
+  test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) (invalid='<tool_call>{"name":"read_file","arguments":42}</tool_call>', valid='```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```') ... FAIL
+test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) ...
+  test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['json.py', 'xml.py'], first='<tool_call>{"name":"read_file","arguments":{"path":"json.py"}}</tool_call>') ... FAIL
+  test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['xml.py', 'json.py'], first='<tool_call><function=read_file>{"path":"xml.py"}</function></tool_call>') ... FAIL
+  test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['json.py', 'xml.py'], first='```json\n{"name":"read_file","arguments":{"path":"json.py"}}\n```') ... FAIL
+  test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['xml.py', 'json.py'], first='<tool_call><function=read_file>{"path":"xml.py"}</function></tool_call>') ... FAIL
+test_multiple_json_calls_preserved (test_agent_responsiveness.ProtocolTests.test_multiple_json_calls_preserved) ... ok
+test_network_deny_is_fail_closed (test_agent_responsiveness.ProtocolTests.test_network_deny_is_fail_closed) ... ok
+test_read_pagination_preserved (test_agent_responsiveness.ProtocolTests.test_read_pagination_preserved) ... ok
+test_retry_backoff_never_exceeds_remaining_or_final_attempt (test_agent_responsiveness.ProtocolTests.test_retry_backoff_never_exceeds_remaining_or_final_attempt) ... ok
+test_unknown_and_illustrative_calls_not_executed (test_agent_responsiveness.ProtocolTests.test_unknown_and_illustrative_calls_not_executed) ... ok
+
+======================================================================
+FAIL: test_deadline_includes_preprocessing (test_agent_responsiveness.LifecycleTests.test_deadline_includes_preprocessing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 290, in test_deadline_includes_preprocessing
+    preprocess.assert_awaited_once()
+  File "C:\Users\Rafi\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\mock.py", line 2334, in assert_awaited_once
+    raise AssertionError(msg)
+AssertionError: Expected prepare_multimedias_for_request to have been awaited once. Awaited 0 times.
+
+======================================================================
+FAIL: test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) (prose='I will inspect the syntax error now.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 114, in test_action_prose_is_not_an_example_introduction
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- []
++ [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) (prose='I will inspect the sample file now.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 114, in test_action_prose_is_not_an_example_introduction
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- []
++ [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_action_prose_is_not_an_example_introduction (test_agent_responsiveness.ProtocolTests.test_action_prose_is_not_an_example_introduction) (prose='The usage count changed. I will inspect a.py now.')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 114, in test_action_prose_is_not_an_example_introduction
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- []
++ [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) (invalid='<tool_call>{"name":"unknown","arguments":{}}</tool_call>', valid='```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 147, in test_invalid_blocks_do_not_hide_later_valid_calls
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- []
++ [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) (invalid='<tool_call><function=unknown>{}</function></tool_call>', valid='```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 147, in test_invalid_blocks_do_not_hide_later_valid_calls
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- []
++ [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_invalid_blocks_do_not_hide_later_valid_calls (test_agent_responsiveness.ProtocolTests.test_invalid_blocks_do_not_hide_later_valid_calls) (invalid='<tool_call>{"name":"read_file","arguments":42}</tool_call>', valid='```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 147, in test_invalid_blocks_do_not_hide_later_valid_calls
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'a.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'a.py'}}
+
+- []
++ [{'arguments': {'path': 'a.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['json.py', 'xml.py'], first='<tool_call>{"name":"read_file","arguments":{"path":"json.py"}}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 132, in test_mixed_protocol_blocks_keep_source_order_without_duplicates
+    self.assertEqual([c['arguments']['path'] for c in calls], paths)
+AssertionError: Lists differ: ['json.py'] != ['json.py', 'xml.py']
+
+Second list contains 1 additional elements.
+First extra element 1:
+'xml.py'
+
+- ['json.py']
++ ['json.py', 'xml.py']
+
+======================================================================
+FAIL: test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['xml.py', 'json.py'], first='<tool_call><function=read_file>{"path":"xml.py"}</function></tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 132, in test_mixed_protocol_blocks_keep_source_order_without_duplicates
+    self.assertEqual([c['arguments']['path'] for c in calls], paths)
+AssertionError: Lists differ: ['json.py'] != ['xml.py', 'json.py']
+
+First differing element 0:
+'json.py'
+'xml.py'
+
+Second list contains 1 additional elements.
+First extra element 1:
+'json.py'
+
+- ['json.py']
++ ['xml.py', 'json.py']
+
+======================================================================
+FAIL: test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['json.py', 'xml.py'], first='```json\n{"name":"read_file","arguments":{"path":"json.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 132, in test_mixed_protocol_blocks_keep_source_order_without_duplicates
+    self.assertEqual([c['arguments']['path'] for c in calls], paths)
+AssertionError: Lists differ: ['xml.py'] != ['json.py', 'xml.py']
+
+First differing element 0:
+'xml.py'
+'json.py'
+
+Second list contains 1 additional elements.
+First extra element 1:
+'xml.py'
+
+- ['xml.py']
++ ['json.py', 'xml.py']
+
+======================================================================
+FAIL: test_mixed_protocol_blocks_keep_source_order_without_duplicates (test_agent_responsiveness.ProtocolTests.test_mixed_protocol_blocks_keep_source_order_without_duplicates) (paths=['xml.py', 'json.py'], first='<tool_call><function=read_file>{"path":"xml.py"}</function></tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 132, in test_mixed_protocol_blocks_keep_source_order_without_duplicates
+    self.assertEqual([c['arguments']['path'] for c in calls], paths)
+AssertionError: Lists differ: ['xml.py'] != ['xml.py', 'json.py']
+
+Second list contains 1 additional elements.
+First extra element 1:
+'json.py'
+
+- ['xml.py']
++ ['xml.py', 'json.py']
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.451s
+
+FAILED (failures=11)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 16.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 31.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=10, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "attempt_2_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"total_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] Upstream server busy, retrying attempt 1/4...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=1, thinking=True, rata_kanan=False
+[mimoly] agent_framework=default (profile: Default (Qwen XML native))
+[mimoly] [non-stream] Interceptor verdict=NUDGE_PROSE, auto-nudging attempt 1/2...
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 47.0, "total_ms": 47.0, "upstream_first_frame_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] Upstream non-stream retry 1/5 due to: offline
+[mimoly] request_timing={"attempt_1_ms": 0.0, "attempt_2_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "total_ms": 47.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 15.0, "first_emission_ms": 15.0, "total_ms": 15.0, "upstream_first_frame_ms": 15.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=True, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}

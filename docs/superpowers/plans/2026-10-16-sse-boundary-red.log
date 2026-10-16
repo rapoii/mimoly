@@ -1,0 +1,51 @@
+test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) ...
+  test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=False) ...FAIL
+  test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=True) ...FAIL
+test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) ...
+  test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=False) ...FAIL
+  test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=True) ...FAIL
+
+======================================================================
+FAIL: test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 631, in test_dialog_id_event_resets_at_blank_boundary
+    self.assertIn('BOUNDARY_ANSWER', output)
+AssertionError: 'BOUNDARY_ANSWER' not found in '{"id":"chatcmpl-cbcfa8518924","object":"chat.completion","created":1792137541,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_dialog_id_event_resets_at_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_resets_at_blank_boundary) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 631, in test_dialog_id_event_resets_at_blank_boundary
+    self.assertIn('BOUNDARY_ANSWER', output)
+AssertionError: 'BOUNDARY_ANSWER' not found in 'data: {"id": "chatcmpl-247367f4107e", "object": "chat.completion.chunk", "created": 1792137541, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-247367f4107e", "object": "chat.completion.chunk", "created": 1792137541, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-247367f4107e", "object": "chat.completion.chunk", "created": 1792137541, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+======================================================================
+FAIL: test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 646, in test_dialog_id_event_still_applies_until_blank_boundary
+    self.assertIn('VISIBLE', output)
+AssertionError: 'VISIBLE' not found in '{"id":"chatcmpl-b03296c47608","object":"chat.completion","created":1792137541,"model":"mimo-v2.6-pro","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}'
+
+======================================================================
+FAIL: test_dialog_id_event_still_applies_until_blank_boundary (test_agent_responsiveness.NonstreamFrameProbeTests.test_dialog_id_event_still_applies_until_blank_boundary) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 646, in test_dialog_id_event_still_applies_until_blank_boundary
+    self.assertIn('VISIBLE', output)
+AssertionError: 'VISIBLE' not found in 'data: {"id": "chatcmpl-27a2a53d8590", "object": "chat.completion.chunk", "created": 1792137541, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-27a2a53d8590", "object": "chat.completion.chunk", "created": 1792137541, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Maaf, saya belum bisa memberi jawaban untuk permintaan itu. Boleh diulang atau diperjelas?"}, "finish_reason": null}]}\n\ndata: {"id": "chatcmpl-27a2a53d8590", "object": "chat.completion.chunk", "created": 1792137541, "model": "mimo-v2.6-pro", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\ndata: [DONE]\n\n'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.054s
+
+FAILED (failures=4)
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=False, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}
+[mimoly] Incoming request: model=mimo-v2.6-pro -> mimo-v2.6-pro, stream=True, messages=1, tools=0, thinking=False, rata_kanan=False
+[mimoly] request_timing={"attempt_1_ms": 0.0, "first_emission_ms": 0.0, "total_ms": 0.0, "upstream_first_frame_ms": 0.0}

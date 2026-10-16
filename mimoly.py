@@ -8,6 +8,7 @@ Compatible with OpenRouter, 9router, Hermes, OpenCode, Claude Code, and Cherry S
 
 import argparse
 import asyncio
+import contextlib
 import contextvars
 import json
 import os
@@ -420,15 +421,11 @@ def acquire_account() -> Tuple[Dict[str, str], Optional[Any]]:
 
 
 def release_account(acct: Optional[Any], success: bool, error_class: Optional[str] = None) -> None:
+    # Reservation/health bookkeeping is not lock ownership. A queued request may
+    # release its reservation while another request still owns this account lock.
+    # Only the lifecycle that acquired the lock may release it.
     if _ACCOUNT_POOL is not None and acct is not None:
         _ACCOUNT_POOL.release(acct, success=success, error_class=error_class)
-        if hasattr(acct, "get_lock"):
-            try:
-                l = acct.get_lock()
-                if l.locked():
-                    l.release()
-            except RuntimeError:
-                pass
 
 
 def can_rotate_account() -> bool:
@@ -1636,8 +1633,8 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
                 c = " ".join([part.get("text", "") for part in c if isinstance(part, dict) and "text" in part])
             clean_c = re.sub(r"<EXTREMELY_IMPORTANT>[\s\S]*?</EXTREMELY_IMPORTANT>", "", c).strip()
             clean_c = re.sub(r"<SUBAGENT-STOP>[\s\S]*?$", "", clean_c).strip()
-            if r == "system":
-                formatted.append(f"Instruksi: {clean_c}")
+            if r in ("system", "developer"):
+                formatted.append(f"[{r.title()}] Instruksi: {clean_c}")
             elif r == "user":
                 formatted.append(f"User: {clean_c}")
             elif r == "assistant":
@@ -1658,10 +1655,10 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             text_parts = [c.get("text", "") for c in content if isinstance(c, dict) and "text" in c]
             content = " ".join(text_parts)
 
-        if role == "system":
+        if role in ("system", "developer"):
             if content:
                 clean_sys = sanitize_observation(content, max_chars=8000)
-                system_instructions.append(clean_sys)
+                system_instructions.append(f"[{role.title()}] {clean_sys}")
         elif role == "user":
             # Bersihkan bootstrap tags agar prompt tetap ringkas & fokus
             clean_c = re.sub(r"<EXTREMELY_IMPORTANT>[\s\S]*?</EXTREMELY_IMPORTANT>", "", content).strip()
@@ -1717,12 +1714,7 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
             # Beri kuota lebih besar (sampai 8000 chars) untuk tool terbaru agar file/kode tidak terpotong
             obs_limit = 8000 if idx >= len(messages) - 2 else 2000
             sanitized = sanitize_observation(content, max_chars=obs_limit)
-            # Tool results routinely contain JSON, which is full of double quotes.
-            # Embedding that verbatim into this plain-text prompt leaves an
-            # unescaped `{"` sequence that the model cannot parse, so it retries
-            # the same tool until it burns its turn budget. Neutralise the quotes
-            # so the observation reads as plain text.
-            sanitized = sanitized.replace('"', "'")
+            # Preserve exact code/JSON quotes in plain-text observations.
             history.append(f"[Hasil {tool_name}]: {sanitized}")
 
     main_goal = user_goals[-1] if user_goals else ""
@@ -1758,7 +1750,16 @@ def build_agent_prompt(messages: List[Dict[str, Any]], tools: Optional[List[Dict
         )
         catalogue_text = mask_urls_for_upstream(catalogue_text)
         intro_text = profile["tool_intro"].replace("{tool_desc}", catalogue_text)
-        prompt_lines.append(intro_text)
+        prompt_lines.append(
+            "[External tool bridge]\n"
+            "The tools below are supplied by an external client executor, not native Xiaomi tools. "
+            "You only emit the requested tool-call text in the format below; the gateway parses it "
+            "and the client executes it, then returns the real observation on a later turn. "
+            "A missing native terminal does not prevent requesting the client's declared terminal tool. "
+            "Do not invent tool results or claim execution before an observation arrives. "
+            "If a requested tool is not declared, say so truthfully. Respect explicit no-tool requests "
+            "and answer directly when a tool is not needed.\n\n" + intro_text
+        )
 
     # Goal & status guidance
     goal_block = ""
@@ -2143,10 +2144,7 @@ def normalize_tool_args(name: str, args: dict, user_prompt: str = "",
         if "replace" in args and "new_string" not in args:
             args["new_string"] = args.pop("replace")
 
-    # Remove pagination parameters from read_file to avoid Hermes CLI 'stale_write_blocked (partial view)' refusal
-    if name == "read_file":
-        args.pop("limit", None)
-        args.pop("offset", None)
+    # Preserve pagination; callers own partial-read/write safety.
 
     # Infer missing path from user_prompt if write_file/read_file omitted it
     if name in ["write_file", "read_file", "patch"] and "path" not in args and user_prompt:
@@ -2379,6 +2377,131 @@ def _finalize_tool_calls(calls: List[Dict[str, Any]], reply_text: str, user_prom
 
 
 def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[Any] = None):
+    """Parse supported invocations, never illustrative fences or unknown tools."""
+    original = reply_text
+    # A standalone protocol fence is an invocation; a fence introduced as an
+    # example/documentation is not. Keep surrounding prose available as output.
+    def strip_example(match):
+        prefix = reply_text[max(0, match.start() - 180):match.start()].rstrip()
+        if re.search(
+            r"(?:\b(?:for\s+example|(?:here\s+is\s+)?(?:an?\s+)?example(?:\s+(?:usage|invocation|call))?|"
+            r"sample\s+(?:invocation|call|usage)|syntax|usage|contoh)|e\.g\.)\s*:\s*$",
+            prefix, re.I,
+        ):
+            return ""
+        return match.group(0)
+    executable = re.sub(r"```[^\n]*\n[\s\S]*?```", strip_example, reply_text)
+    index = _build_tool_index(available_tools)
+
+    def unpack(obj):
+        if isinstance(obj, list):
+            return [call for item in obj for call in unpack(item)]
+        if not isinstance(obj, dict):
+            return []
+        if isinstance(obj.get("tool_calls"), list):
+            return unpack(obj["tool_calls"])
+        function = obj.get("function") if isinstance(obj.get("function"), dict) else obj
+        name = function.get("name")
+        args = function.get("arguments", function.get("parameters", function.get("input", {})))
+        return [{"name": name, "arguments": args}] if name else []
+
+    def validated(calls):
+        result = []
+        for call in calls:
+            name = call.get("name")
+            if name in ("RunCommand", "run_command", "bash", "shell") and "terminal" in index:
+                name = "terminal"
+            if name not in index:
+                continue
+            args = call.get("arguments", {})
+            if isinstance(args, str):
+                args = safe_json_loads(args, default=None)
+            if not isinstance(args, dict):
+                continue
+            args = normalize_tool_args(name, args, user_prompt, available_tools)
+            if validate_tool_args(name, args, available_tools)["valid"]:
+                result.append({"name": name, "arguments": args})
+        return result
+
+    # Non-overlapping protocol spans are decoded independently in source order.
+    # Outer tool_call/fence wrappers own their nested XML/JSON, so a call is not
+    # extracted twice. An invalid span cannot hide a later valid protocol.
+    protocol_start = re.compile(r"<tool_call>|```[^\n]*\n|<(?:function|invoke)(?:=|\s+name=)[^>]*>|[\[{]")
+    fallback_span = re.compile(
+        r"<tool_call>\s*```[^\n]*\n[\s\S]*?```\s*</tool_call>"
+        r"|<tool_call>\s*(?:<(?:function|invoke)(?:=|\s+name=)[^>]*>)?"
+        r"(?:(?!<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))[\s\S])*?"
+        r"(?:</tool_call>|(?=<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))|$)"
+        r"|```[^\n]*\n[\s\S]*?```"
+        r"|<(?:function|invoke)(?:=|\s+name=)[^>]*>"
+        r"(?:(?!<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))[\s\S])*?"
+        r"(?:</(?:function|invoke)>|(?=<tool_call>|```|<(?:function|invoke)(?:=|\s+name=))|$)"
+    )
+    candidates = []
+    cursor = 0
+    decoder = json.JSONDecoder()
+    while match := protocol_start.search(executable, cursor):
+        start = match.start()
+        payload_start = start
+        wrapped = executable.startswith('<tool_call>', start)
+        if wrapped:
+            payload_start += len('<tool_call>')
+        while payload_start < len(executable) and executable[payload_start].isspace():
+            payload_start += 1
+        fence = re.match(r"```[^\n]*\n", executable[payload_start:])
+        if fence:
+            payload_start += fence.end()
+            while payload_start < len(executable) and executable[payload_start].isspace():
+                payload_start += 1
+        try:
+            # Decode before looking for protocol delimiters: backticks/tags in
+            # JSON strings are data, never recovery boundaries.
+            _, end = decoder.raw_decode(executable, payload_start)
+        except ValueError:
+            span = fallback_span.match(executable, start)
+            if span is None:
+                cursor = match.end()
+                continue
+            end = span.end()
+        else:
+            suffix = re.match(r"\s*```", executable[end:]) if fence else None
+            if suffix:
+                end += suffix.end()
+            suffix = re.match(r"\s*</tool_call>", executable[end:]) if wrapped else None
+            if suffix:
+                end += suffix.end()
+        candidates.append((start, end, executable[start:end]))
+        cursor = end
+    if not candidates:
+        candidates = [(0, len(executable), executable)]
+    result = []
+    removed = []
+    for start, end, candidate in candidates:
+        payload = re.sub(r"^<tool_call>|</tool_call>$", "", candidate.strip()).strip()
+        payload = re.sub(r"^```(?:json)?\s*|\s*```$", "", payload)
+        try:
+            obj = json.loads(payload)
+        except (ValueError, TypeError):
+            # Preserve tolerant XML, repaired JSON and markdown recovery.
+            calls, _ = _extract_legacy_tool_calls(candidate, user_prompt, available_tools)
+        else:
+            calls = unpack(obj)
+        # Healing may need sibling markdown (write_file content / Python code),
+        # even though extraction itself is scoped to one protocol span.
+        _finalize_tool_calls(calls, executable, user_prompt, available_tools, list(index))
+        accepted = validated(calls)
+        if accepted:
+            result.extend(accepted)
+            removed.append((start, end))
+    if result:
+        clean = executable
+        for start, end in reversed(removed):
+            clean = clean[:start] + clean[end:]
+        return result, clean.replace("</think>", "").strip()
+    return [], original
+
+
+def _extract_legacy_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[Any] = None):
     """Detect explicit JSON tool_calls or extract code blocks mapped to write/shell tools."""
     tool_index = _build_tool_index(available_tools)
     tool_names = list(tool_index.keys())
@@ -3444,7 +3567,10 @@ async def handle_chat_completion(body: dict, request: Request):
                     async for _chunk in _inner_iter:
                         yield _chunk
                 finally:
-                    _ADMISSION.release()
+                    try:
+                        await _inner_iter.aclose()
+                    finally:
+                        _ADMISSION.release()
 
             result.body_iterator = _admitting_iter()
         return result
@@ -3453,7 +3579,178 @@ async def handle_chat_completion(body: dict, request: Request):
             _ADMISSION.release()
 
 
+_HEARTBEAT_INTERVAL = 10.0
+
+
+def _request_budget_seconds(model: str) -> float:
+    """Total preprocessing/queue/inference/backoff time, NOT a retry window.
+
+    Use one 180s default for every model, matching the upstream HTTP read limit.
+    The ultraspeed 200s retry window is scheduling policy, not an inference SLA.
+    """
+    raw = os.environ.get("MIMOLY_REQUEST_TIMEOUT_SECONDS", "180")
+    try:
+        seconds = float(raw)
+        if not (0 < seconds < float("inf")):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("MIMOLY_REQUEST_TIMEOUT_SECONDS must be a positive finite number") from None
+    return seconds
+
+
+class _UpstreamFrameError(Exception):
+    """Terminal SSE error. Never trust message text or infer retryability from it."""
+    def __init__(self, status=None):
+        # Only an explicit HTTP error status can supply a taxonomy classification.
+        self.status_code = status if type(status) is int and 400 <= status <= 599 else 502
+        self.error_class = classify_status(status) if type(status) is int and 400 <= status <= 599 else ERROR_GATEWAY
+        super().__init__("Upstream reported an error frame")
+
+    def payload(self):
+        return {"error": {"message": str(self), "type": "upstream_error",
+                          "code": self.error_class}}
+
+
+def _check_upstream_error_frame(parsed, event):
+    if "error" in parsed or parsed.get("type") == "error" or event == "error":
+        detail = parsed.get("error")
+        detail = detail if isinstance(detail, dict) else parsed
+        raise _UpstreamFrameError(detail.get("status", detail.get("status_code")))
+
+
+class _RequestLifecycle:
+    """One deadline and explicit ownership across preprocessing, retries and SSE."""
+    def __init__(self, seconds: float):
+        self.started = time.monotonic()
+        self.deadline = self.started + seconds
+        self.accounts = []
+        self.locks = []
+        self.timings = {}
+        self.output_started = False
+        self.closed = False
+
+    def mark(self, phase):
+        self.timings.setdefault(phase, round((time.monotonic() - self.started) * 1000, 2))
+
+    def acquire(self):
+        cookies, account = acquire_account()
+        if account is not None:
+            self.accounts.append(account)
+        return cookies, account
+
+    async def acquire_lock(self, lock):
+        await lock.acquire()
+        self.locks.append(lock)
+
+    def release_lock(self, lock):
+        if lock in self.locks:
+            self.locks.remove(lock)
+            lock.release()
+
+    def release(self, account, success, error_class=None):
+        if account is None:
+            return
+        if account in self.accounts:
+            self.accounts.remove(account)
+            release_account(account, success=success, error_class=error_class)
+
+    async def sleep(self, delay):
+        await asyncio.sleep(min(delay, max(0.0, self.deadline - time.monotonic())))
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        for lock in list(self.locks):
+            self.release_lock(lock)
+        for account in list(self.accounts):
+            self.release(account, success=True)
+        self.mark("total_ms")
+        # Phase durations only; never prompts, credentials or response content.
+        print(f"[mimoly] request_timing={json.dumps(self.timings, sort_keys=True)}")
+
+    async def run(self, awaitable):
+        remaining = self.deadline - time.monotonic()
+        return await asyncio.wait_for(awaitable, timeout=max(0.0, remaining))
+
+
 async def _handle_chat_completion_inner(body: dict, request: Request):
+    try:
+        seconds = _request_budget_seconds(body.get("model", "mimo-v2.6-pro"))
+    except ValueError as exc:
+        return JSONResponse({"error": {"message": str(exc), "type": "configuration_error"}}, status_code=500)
+    lifecycle = _RequestLifecycle(seconds)
+    deferred = False
+    try:
+        result = await lifecycle.run(_run_chat_completion(body, request, lifecycle))
+        if isinstance(result, StreamingResponse):
+            iterator = result.body_iterator
+
+            async def bounded_stream():
+                try:
+                    while True:
+                        try:
+                            chunk = await lifecycle.run(iterator.__anext__())
+                        except StopAsyncIteration:
+                            break
+                        if '"reasoning_content":' in chunk:
+                            lifecycle.output_started = True
+                        if '"content":' in chunk or '"tool_calls":' in chunk:
+                            # Empty role announcement is not an answer emission.
+                            if '"content": ""' not in chunk:
+                                lifecycle.output_started = True
+                                lifecycle.mark("first_emission_ms")
+                        yield chunk
+                except asyncio.TimeoutError:
+                    yield 'data: {"error":{"message":"Request deadline exceeded","type":"timeout"}}\n\n'
+                    yield 'data: [DONE]\n\n'
+                finally:
+                    try:
+                        await iterator.aclose()
+                    finally:
+                        lifecycle.close()
+
+            result.body_iterator = bounded_stream()
+            deferred = True
+        else:
+            lifecycle.mark("first_emission_ms")
+        return result
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "Request deadline exceeded"}, status_code=504)
+    finally:
+        if not deferred:
+            lifecycle.close()
+
+
+async def _heartbeat_lines(response, lifecycle):
+    """Keep ONE pending read across idle pings; own and await its cancellation."""
+    iterator = response.aiter_lines().__aiter__()
+    pending = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.create_task(iterator.__anext__())
+            done, _ = await asyncio.wait({pending}, timeout=_HEARTBEAT_INTERVAL)
+            if not done:
+                yield None
+                continue
+            try:
+                line = pending.result()
+            except StopAsyncIteration:
+                return
+            pending = None
+            lifecycle.mark("upstream_first_frame_ms")
+            yield line
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            await close()
+
+
+async def _run_chat_completion(body: dict, request: Request, lifecycle):
 
     messages = body.get("messages", [])
     if not messages:
@@ -3471,15 +3768,36 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     enable_thinking_param = body.get("enable_thinking")
     thinking_param = body.get("thinking")
 
-    thinking_enabled = True
+    # Determine explicit user intent for thinking (None = no preference stated)
+    _explicit_thinking = None  # None means "caller didn't specify"
     if reasoning_effort in ["none", "off", "false", "0"]:
-        thinking_enabled = False
-    elif enable_thinking_param is False:
-        thinking_enabled = False
-    elif isinstance(thinking_param, dict) and thinking_param.get("type") == "disabled":
-        thinking_enabled = False
+        _explicit_thinking = False
+    elif reasoning_effort not in ["default", ""]:
+        _explicit_thinking = True  # any non-default effort = caller wants thinking
+    if enable_thinking_param is False:
+        _explicit_thinking = False
+    elif enable_thinking_param is True:
+        _explicit_thinking = True
+    if isinstance(thinking_param, dict):
+        if thinking_param.get("type") == "disabled":
+            _explicit_thinking = False
+        elif thinking_param.get("type") == "enabled":
+            _explicit_thinking = True
 
-    # Default to natural thinking (bawaan MiMo 2.6 Pro, fast & focused, no artificial overthinking).
+    # Adaptive thinking strategy:
+    #  - Caller explicitly set thinking → honor it unconditionally
+    #  - No explicit preference + tools present → thinking OFF for stability
+    #    (Xiaomi FAQ recommends disabling thinking during tool calling;
+    #     AI Studio web endpoint returns 服务器繁忙 with thinking+tools)
+    #  - No explicit preference + no tools → thinking ON for reasoning quality
+    has_tools = bool(tools)
+    if _explicit_thinking is not None:
+        thinking_enabled = _explicit_thinking
+    elif has_tools:
+        thinking_enabled = False
+    else:
+        thinking_enabled = True
+
     # Hanya aktifkan amplifier "rata kanan" jika eksplisit diminta via reasoning_effort='max'/'extreme'/'rata_kanan'
     is_rata_kanan = False
     if reasoning_effort in ["max", "high", "extreme", "rata_kanan"] or body.get("rata_kanan") is True:
@@ -3501,10 +3819,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
         tools_names=_tool_names,
     )
 
-    # Cap thinking + answer output via max_completion_tokens if not set by caller
-    # (prevents unbounded thinking bloat - research shows MiMo can produce 25-30k thinking tokens without cap)
-    if not body.get("max_completion_tokens") and not body.get("max_tokens"):
-        body["max_completion_tokens"] = 8192
+    # The web wire payload has no verified output-token cap. Client max_tokens /
+    # max_completion_tokens are NOT enforced here; the request deadline is local.
 
     try:
         with open("last_request.json", "w", encoding="utf-8") as f_req:
@@ -3542,7 +3858,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
     # Load authentic session cookies (from the rotating account pool if available)
     _acct = None
     try:
-        cookies, _acct = acquire_account()
+        cookies, _acct = lifecycle.acquire()
     except Exception as e:
         _STATS["errors"] += 1
         _record_timeline(errors=1)
@@ -3639,7 +3955,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             _empty_retries = 0      # separate, stricter cap so we don't amplify 429s
             _acct_lock = _cur_acct.get_lock() if (_cur_acct and hasattr(_cur_acct, "get_lock")) else None
             if _acct_lock:
-                await _acct_lock.acquire()
+                await lifecycle.acquire_lock(_acct_lock)
             try:
                 try:
                     # The FastChat (ultraspeed) cluster rate-limits on a ~60s window;
@@ -3651,12 +3967,15 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     else:
                         _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
                     _budget = RetryBudget(max_attempts=_max_attempts, base_delay=1.0, max_delay=_max_delay, deadline=_deadline, min_delay=0.2)
-                    _budget.start()
-                    _stream_started = False  # "started guard": no retry after first content byte
+                    _budget._started_at = lifecycle.started
                     _content_started = False # True only when actual delta.content is yielded
                     _last_error_class = None
                     base_upstream_query = upstream_payload["query"]
                     for attempt in range(_max_attempts):
+                        if attempt > 0 and _budget.expired():
+                            raise RuntimeError("Retry scheduling budget exhausted")
+                        accumulated_chunks.clear()
+                        lifecycle.mark(f"attempt_{attempt + 1}_ms")
                         _upstream_was_busy = False
                         # Per-attempt parse state. These are declared before the loop
                         # (for the timeout handlers) but MUST reset each attempt: a
@@ -3674,6 +3993,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 # calls further apart so retries don't self-throttle.
                                 _min_interval = 5.0 if is_ultraspeed_model(target_upstream_model) else 2.0
                                 await _cur_acct.wait_throttle(min_interval=_min_interval)
+                            if attempt > 0 and _budget.expired():
+                                raise RuntimeError("Retry scheduling budget exhausted")
                             _client = get_shared_client()
                             async with _client.stream("POST", _cur_upstream_url, headers=headers, cookies=_cur_cookies, json=upstream_payload) as resp:
                                     if resp.status_code != 200:
@@ -3682,14 +4003,15 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _last_error_class = _err_class
                                         _retryable_now = is_retryable(_err_class) or (
                                             _err_class == ERROR_AUTH and can_rotate_account())
-                                        if _retryable_now and _budget.should_retry(attempt) and not _stream_started and (tools or not accumulated_chunks):
+                                        if _retryable_now and _budget.should_retry(attempt) and not lifecycle.output_started and (tools or not accumulated_chunks):
                                             print(f"[mimoly] Upstream stream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/{_max_attempts}...")
                                             _bump_retry()
                                             # Rotate to another credential when the failure is key-specific AND multiple accounts exist.
                                             if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
-                                                release_account(_cur_acct, success=False, error_class=_err_class)
+                                                lifecycle.release(_cur_acct, success=False, error_class=_err_class)
                                                 try:
-                                                    _cur_cookies, _cur_acct = acquire_account()
+                                                    lifecycle.release_lock(_acct_lock)
+                                                    _cur_cookies, _cur_acct = lifecycle.acquire()
                                                     _ph = _cur_cookies.get("xiaomichatbot_ph", "")
                                                     _cur_upstream_url, _ = get_upstream_endpoints(target_upstream_model, _ph)
                                                     # The new account must be locked the same way the
@@ -3697,7 +4019,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                     # lock so the finally block releases the right one.
                                                     _acct_lock = _cur_acct.get_lock() if (_cur_acct and hasattr(_cur_acct, "get_lock")) else None
                                                     if _acct_lock:
-                                                        await _acct_lock.acquire()
+                                                        await lifecycle.acquire_lock(_acct_lock)
                                                 except Exception:
                                                     pass
                                             await _budget.sleep(attempt, error_class=_err_class)
@@ -3725,12 +4047,11 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
                                                         finish_reason="error",
                                                         latency_ms=(time.time() - _req_start) * 1000.0)
-                                        release_account(_cur_acct, success=False, error_class=_err_class)
+                                        lifecycle.release(_cur_acct, success=False, error_class=_err_class)
                                         _acct_released = True
                                         yield "data: [DONE]\n\n"
                                         return
 
-                                    _stream_started = True
                                     if not tools and not _initial_chunk_sent:
                                         initial_chunk = {
                                             "id": completion_id,
@@ -3747,146 +4068,172 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         _initial_chunk_sent = True
 
                                     last_event = None
-                                    line_iter = resp.aiter_lines().__aiter__()
-                                    _disc_checked = 0.0
                                     _upstream_was_busy = False
-                                    while True:
-                                        try:
-                                            line = await asyncio.wait_for(line_iter.__anext__(), timeout=10.0)
-                                        except asyncio.TimeoutError:
-                                            # Send SSE comment ping to prevent reverse proxies/clients timing out during deep reasoning
-                                            yield ": keep-alive\n\n"
-                                            # Also poll for client disconnect during long idle gaps
-                                            # (e.g. deep thinking) so we can cancel upstream work.
-                                            _now = time.time()
-                                            if _now - _disc_checked >= 5.0:
-                                                _disc_checked = _now
-                                                try:
-                                                    if await request.is_disconnected():
-                                                        print("[mimoly] Client disconnected during stream; cancelling upstream.")
-                                                        break
-                                                except Exception:
-                                                    pass
-                                            continue
-                                        except StopAsyncIteration:
-                                            break
+                                    line_iter = _heartbeat_lines(resp, lifecycle)
+                                    async with contextlib.aclosing(line_iter):
+                                        async for line in line_iter:
+                                            if line is None:
+                                                yield ": keep-alive\n\n"
+                                                if await request.is_disconnected():
+                                                    raise asyncio.CancelledError()
+                                                continue
 
-                                        if not line:
-                                            continue
-                                        if line.startswith("event:"):
-                                            last_event = line[6:].strip()
-                                            continue
-                                        if not line.startswith("data:"):
-                                            continue
+                                            if not line:
+                                                last_event = None
+                                                continue
+                                            if line.startswith("event:"):
+                                                last_event = line[6:].strip()
+                                                continue
+                                            if not line.startswith("data:"):
+                                                continue
 
-                                        data_str = line[5:].strip()
-                                        if "[DONE]" in data_str:
-                                            break
+                                            data_str = line[5:].strip()
+                                            if data_str == "[DONE]":
+                                                break
 
-                                        try:
-                                            parsed = json.loads(data_str)
-                                        except Exception:
-                                            continue
-                                        # Ignore non-object frames (e.g. Xiaomi's internal
-                                        # web-search JSON array) instead of crashing with
-                                        # "'list' object has no attribute 'get'".
-                                        parsed = normalize_upstream_frame(parsed)
-                                        if parsed is None:
-                                            continue
+                                            try:
+                                                parsed = json.loads(data_str)
+                                            except Exception:
+                                                continue
+                                            # Ignore non-object frames (e.g. Xiaomi's internal
+                                            # web-search JSON array) instead of crashing with
+                                            # "'list' object has no attribute 'get'".
+                                            parsed = normalize_upstream_frame(parsed)
+                                            if parsed is None:
+                                                continue
+                                            _check_upstream_error_frame(parsed, last_event)
 
-                                        if parsed.get("content") == "[DONE]":
-                                            break
+                                            if parsed.get("content") == "[DONE]":
+                                                break
 
-                                        # Capture usage metrics from upstream
-                                        if "promptTokens" in parsed or "totalTokens" in parsed:
-                                            usage_data = {
-                                                "prompt_tokens": parsed.get("promptTokens", 0),
-                                                "completion_tokens": parsed.get("completionTokens", 0),
-                                                "total_tokens": parsed.get("totalTokens", 0),
-                                            }
-                                            native_usage = parsed.get("nativeUsage", {})
-                                            reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
-                                            if reasoning_tokens:
-                                                usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
-                                            _record_usage(usage_data, model)
-                                            continue
-
-                                        # Support native Xiaomi toolCalls array from /open-apis/react/chat
-                                        if "toolCalls" in parsed and isinstance(parsed["toolCalls"], list):
-                                            for tc in parsed["toolCalls"]:
-                                                fn_name = tc.get("name", "")
-                                                fn_args = tc.get("arguments", "{}")
-                                                if fn_name:
-                                                    accumulated_chunks.append(f"\n<tool_call>\n<function={fn_name}>\n{fn_args}\n</tool_call>\n")
-                                            continue
-
-                                        # Support native Xiaomi reasoningContent string from /open-apis/react/chat
-                                        r_piece = parsed.get("reasoningContent", "")
-                                        if r_piece:
-                                            _saw_reasoning = True
-                                            if thinking_enabled:
-                                                t_chunk = {
-                                                    "id": completion_id,
-                                                    "object": "chat.completion.chunk",
-                                                    "created": created_time,
-                                                    "model": model,
-                                                    "choices": [{
-                                                        "index": 0,
-                                                        "delta": {"role": "assistant", "reasoning_content": r_piece.replace("\x00", "")},
-                                                        "finish_reason": None
-                                                    }]
+                                            # Capture usage metrics from upstream
+                                            if "promptTokens" in parsed or "totalTokens" in parsed:
+                                                usage_data = {
+                                                    "prompt_tokens": parsed.get("promptTokens", 0),
+                                                    "completion_tokens": parsed.get("completionTokens", 0),
+                                                    "total_tokens": parsed.get("totalTokens", 0),
                                                 }
-                                                yield f"data: {json.dumps(t_chunk)}\n\n"
-                                            continue
+                                                native_usage = parsed.get("nativeUsage", {})
+                                                reasoning_tokens = native_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+                                                if reasoning_tokens:
+                                                    usage_data["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+                                                _record_usage(usage_data, model)
+                                                continue
 
-                                        content_piece = parsed.get("content", "")
-                                        # Ignore dialog ID event (both standard cluster and FastChat 6-digit IDs)
-                                        if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
-                                            continue
+                                            # Support native Xiaomi toolCalls array from /open-apis/react/chat
+                                            if "toolCalls" in parsed and isinstance(parsed["toolCalls"], list):
+                                                for tc in parsed["toolCalls"]:
+                                                    fn_name = tc.get("name", "")
+                                                    fn_args = tc.get("arguments", "{}")
+                                                    if fn_name:
+                                                        accumulated_chunks.append(f"\n<tool_call>\n<function={fn_name}>\n{fn_args}\n</tool_call>\n")
+                                                continue
 
-                                        if not content_piece:
-                                            continue
+                                            # Support native Xiaomi reasoningContent string from /open-apis/react/chat
+                                            r_piece = parsed.get("reasoningContent", "")
+                                            if r_piece:
+                                                _saw_reasoning = True
+                                                if thinking_enabled:
+                                                    t_chunk = {
+                                                        "id": completion_id,
+                                                        "object": "chat.completion.chunk",
+                                                        "created": created_time,
+                                                        "model": model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {"role": "assistant", "reasoning_content": r_piece.replace("\x00", "")},
+                                                            "finish_reason": None
+                                                        }]
+                                                    }
+                                                    yield f"data: {json.dumps(t_chunk)}\n\n"
+                                                continue
 
-                                        # Detect upstream rate-limit or busy messages before content streaming begins
-                                        if (not _content_started or tools) and is_upstream_busy(content_piece):
-                                            print(f"[mimoly] Upstream emitted busy phrase in frame: {content_piece.strip()!r}")
-                                            _upstream_was_busy = True
-                                            break
+                                            content_piece = parsed.get("content", "")
+                                            # IDs are identified by their SSE event, never by numeric content.
+                                            if last_event == "dialogId":
+                                                continue
 
-                                        # Time-to-first-token (stream): first real content chunk
-                                        if _first_token_at is None:
-                                            _first_token_at = time.time()
-                                            _stream_started = True
-                                            _record_latency("ttft_ms", (_first_token_at - _req_start) * 1000.0)
+                                            if not content_piece:
+                                                continue
 
-                                        if "<think>" in content_piece:
-                                            in_thinking = True
-                                            content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
+                                            # Detect upstream rate-limit or busy messages before content streaming begins
+                                            if (not _content_started or tools) and is_upstream_busy(content_piece):
+                                                print(f"[mimoly] Upstream emitted busy phrase in frame: {content_piece.strip()!r}")
+                                                _upstream_was_busy = True
+                                                break
 
-                                        if "</think>" in content_piece:
-                                            parts = content_piece.split("</think>", 1)
-                                            think_part = parts[0].replace("\x00", "")
-                                            answer_part = parts[1].replace("\x00", "")
+                                            # Time-to-first-token (stream): first real content chunk
+                                            if _first_token_at is None:
+                                                _first_token_at = time.time()
+                                                _record_latency("ttft_ms", (_first_token_at - _req_start) * 1000.0)
 
-                                            if think_part and thinking_enabled:
-                                                t_chunk = {
-                                                    "id": completion_id,
-                                                    "object": "chat.completion.chunk",
-                                                    "created": created_time,
-                                                    "model": model,
-                                                    "choices": [{
-                                                        "index": 0,
-                                                        "delta": {"role": "assistant", "reasoning_content": think_part},
-                                                        "finish_reason": None
-                                                    }]
-                                                }
-                                                yield f"data: {json.dumps(t_chunk)}\n\n"
+                                            if "<think>" in content_piece:
+                                                in_thinking = True
+                                                content_piece = content_piece.replace("<think>\x00", "").replace("<think>", "")
 
-                                            in_thinking = False
+                                            if "</think>" in content_piece:
+                                                parts = content_piece.split("</think>", 1)
+                                                think_part = parts[0].replace("\x00", "")
+                                                answer_part = parts[1].replace("\x00", "")
 
-                                            if answer_part:
+                                                if think_part and thinking_enabled:
+                                                    t_chunk = {
+                                                        "id": completion_id,
+                                                        "object": "chat.completion.chunk",
+                                                        "created": created_time,
+                                                        "model": model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {"role": "assistant", "reasoning_content": think_part},
+                                                            "finish_reason": None
+                                                        }]
+                                                    }
+                                                    yield f"data: {json.dumps(t_chunk)}\n\n"
+
+                                                in_thinking = False
+
+                                                if answer_part:
+                                                    if tools:
+                                                        accumulated_chunks.append(answer_part)
+                                                    else:
+                                                        chunk = {
+                                                            "id": completion_id,
+                                                            "object": "chat.completion.chunk",
+                                                            "created": created_time,
+                                                            "model": model,
+                                                            "choices": [{
+                                                                "index": 0,
+                                                                "delta": {"role": "assistant", "content": answer_part},
+                                                                "finish_reason": None
+                                                            }]
+                                                        }
+                                                        yield f"data: {json.dumps(chunk)}\n\n"
+                                                        _content_started = True
+                                                        accumulated_chunks.append(answer_part)
+                                                continue
+
+                                            clean_piece = content_piece.replace("\x00", "")
+                                            if not clean_piece:
+                                                continue
+
+                                            if in_thinking:
+                                                if thinking_enabled:
+                                                    _saw_reasoning = True
+                                                    t_chunk = {
+                                                        "id": completion_id,
+                                                        "object": "chat.completion.chunk",
+                                                        "created": created_time,
+                                                        "model": model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {"role": "assistant", "reasoning_content": clean_piece},
+                                                            "finish_reason": None
+                                                        }]
+                                                    }
+                                                    yield f"data: {json.dumps(t_chunk)}\n\n"
+                                            else:
                                                 if tools:
-                                                    accumulated_chunks.append(answer_part)
+                                                    accumulated_chunks.append(clean_piece)
                                                 else:
                                                     chunk = {
                                                         "id": completion_id,
@@ -3895,59 +4242,20 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                                         "model": model,
                                                         "choices": [{
                                                             "index": 0,
-                                                            "delta": {"role": "assistant", "content": answer_part},
+                                                            "delta": {"role": "assistant", "content": clean_piece},
                                                             "finish_reason": None
                                                         }]
                                                     }
                                                     yield f"data: {json.dumps(chunk)}\n\n"
                                                     _content_started = True
-                                                    accumulated_chunks.append(answer_part)
-                                            continue
-
-                                        clean_piece = content_piece.replace("\x00", "")
-                                        if not clean_piece:
-                                            continue
-
-                                        if in_thinking:
-                                            if thinking_enabled:
-                                                _saw_reasoning = True
-                                                t_chunk = {
-                                                    "id": completion_id,
-                                                    "object": "chat.completion.chunk",
-                                                    "created": created_time,
-                                                    "model": model,
-                                                    "choices": [{
-                                                        "index": 0,
-                                                        "delta": {"role": "assistant", "reasoning_content": clean_piece},
-                                                        "finish_reason": None
-                                                    }]
-                                                }
-                                                yield f"data: {json.dumps(t_chunk)}\n\n"
-                                        else:
-                                            if tools:
-                                                accumulated_chunks.append(clean_piece)
-                                            else:
-                                                chunk = {
-                                                    "id": completion_id,
-                                                    "object": "chat.completion.chunk",
-                                                    "created": created_time,
-                                                    "model": model,
-                                                    "choices": [{
-                                                        "index": 0,
-                                                        "delta": {"role": "assistant", "content": clean_piece},
-                                                        "finish_reason": None
-                                                    }]
-                                                }
-                                                yield f"data: {json.dumps(chunk)}\n\n"
-                                                _content_started = True
-                                                accumulated_chunks.append(clean_piece)
+                                                    accumulated_chunks.append(clean_piece)
                             _busy_max = _max_attempts if is_ultraspeed_model(target_upstream_model) else 4
                             _full_str = "".join(accumulated_chunks)
                             _has_tools = False
                             if tools:
                                 _probe_calls, _ = smart_extract_tool_calls(_full_str, user_prompt, tools)
                                 _has_tools = bool(_probe_calls)
-                            if not _has_tools and (_upstream_was_busy or is_upstream_busy(_full_str)) and attempt < _busy_max:
+                            if not _has_tools and (_upstream_was_busy or is_upstream_busy(_full_str)) and _budget.should_retry(attempt) and attempt + 1 < _busy_max and not lifecycle.output_started:
                                 print(f"[mimoly] Upstream stream busy, retrying attempt {attempt+1}/{_busy_max}...")
                                 accumulated_chunks.clear()
                                 _bump_retry()
@@ -3961,7 +4269,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 # oversized context that just triggered the refusal.
                                 if tools and len(user_prompt) > 6000:
                                     _compact = build_agent_prompt(
-                                        messages[-4:], tools, framework=agent_framework, is_ultraspeed=is_ultra
+                                        messages, tools, framework=agent_framework, is_ultraspeed=True
                                     )
                                     upstream_payload["query"] = _compact
                                     base_upstream_query = _compact
@@ -3970,8 +4278,10 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 # that we are being rate-limited — so wait longer between tries
                                 # instead of hammering a saturated backend.
                                 _busy_sleep = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
-                                await asyncio.sleep(_busy_sleep)
+                                await lifecycle.sleep(_busy_sleep)
                                 continue
+                            if not _has_tools and (_upstream_was_busy or is_upstream_busy(_full_str)):
+                                raise RuntimeError("Upstream busy; retry scheduling budget exhausted")
                             # Strict Action Interceptor: catch reasoning stalls & prose evasions
                             if tools:
                                 full_attempt_reply = "".join(accumulated_chunks)
@@ -3985,8 +4295,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         framework=agent_framework,
                                     )
                                     if (verdict in (Verdict.NUDGE_REASONING, Verdict.NUDGE_PROSE)
-                                            and not _content_started
-                                            and _empty_retries < 2):
+                                            and not lifecycle.output_started
+                                            and _empty_retries < 2 and _budget.should_retry(attempt)):
                                         _empty_retries += 1
                                         tool_names = [
                                             (t.get("function", {}).get("name") if isinstance(t.get("function"), dict) else t.get("name"))
@@ -3996,29 +4306,32 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         directive = ActionEvaluator.get_steering_directive(agent_framework, tool_names[:20])
                                         print(f"[mimoly] Interceptor verdict={verdict.value}, auto-nudging attempt {_empty_retries}/2...")
                                         accumulated_chunks.clear()
-                                        _stream_started = False
                                         in_thinking = False
                                         _saw_reasoning = False
                                         _first_token_at = None
                                         _bump_retry()
                                         upstream_payload["query"] = base_upstream_query + "\n\n" + directive
                                         upstream_payload["msgId"] = uuid.uuid4().hex
-                                        await asyncio.sleep(3.0 * _empty_retries)
+                                        await lifecycle.sleep(3.0 * _empty_retries)
                                         continue
                             break
+                        except _UpstreamFrameError:
+                            raise
                         except Exception as conn_err:
                             _conn_class = classify_exception(conn_err)
-                            if not _budget.should_retry(attempt) or _stream_started:
+                            if not is_retryable(_conn_class) or not _budget.should_retry(attempt) or lifecycle.output_started:
                                 raise conn_err
                             print(f"[mimoly] Upstream stream retry {attempt+1}/{_max_attempts} due to: {conn_err}")
                             _bump_retry()
                             await _budget.sleep(attempt)
 
                     # Reached here with content (or after final attempt): account served OK.
-                    release_account(_cur_acct, success=True)
+                    lifecycle.release(_cur_acct, success=True)
                     _acct_released = True
 
                 except Exception as e:
+                    lifecycle.release(_cur_acct, success=False, error_class=e.error_class if isinstance(e, _UpstreamFrameError) else classify_exception(e))
+                    _acct_released = True
                     err_chunk = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
@@ -4030,6 +4343,8 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             "finish_reason": "error"
                         }]
                     }
+                    if isinstance(e, _UpstreamFrameError):
+                        err_chunk = e.payload()
                     yield f"data: {json.dumps(err_chunk)}\n\n"
                     _STATS["errors"] += 1
                     _record_timeline(errors=1)
@@ -4190,7 +4505,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
             finally:
                 if _acct_lock and hasattr(_acct_lock, "locked") and _acct_lock.locked():
                     try:
-                        _acct_lock.release()
+                        lifecycle.release_lock(_acct_lock)
                     except RuntimeError:
                         pass
                 # Safety net: if the client disconnected or the stream was
@@ -4200,7 +4515,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 if not _acct_released:
                     # A client-initiated abort is not the account's fault: return it
                     # as a success so frequent cancels can never trip its breaker.
-                    release_account(_cur_acct, success=True)
+                    lifecycle.release(_cur_acct, success=True)
                     _acct_released = True
                 if _req_rec is not None and not _req_rec.get("finish_reason"):
                     _elapsed_ms = (time.time() - _req_start) * 1000.0
@@ -4233,21 +4548,27 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
 
     _acct_lock = _acct.get_lock() if (_acct and hasattr(_acct, "get_lock")) else None
     if _acct_lock:
-        await _acct_lock.acquire()
+        await lifecycle.acquire_lock(_acct_lock)
     try:
         if is_ultraspeed_model(target_upstream_model):
             _max_attempts, _deadline, _max_delay = 8, 200.0, 30.0
         else:
             _max_attempts, _deadline, _max_delay = 5, 50.0, 12.0
         _budget = RetryBudget(max_attempts=_max_attempts, base_delay=1.0, max_delay=_max_delay, deadline=_deadline, min_delay=0.2)
-        _budget.start()
+        _budget._started_at = lifecycle.started
         _empty_retries = 0
         for attempt in range(_max_attempts):
+            if attempt > 0 and _budget.expired():
+                raise RuntimeError("Retry scheduling budget exhausted")
+            accumulated_chunks.clear()
+            lifecycle.mark(f"attempt_{attempt + 1}_ms")
             upstream_payload["msgId"] = uuid.uuid4().hex
             try:
                 if _acct and hasattr(_acct, "wait_throttle"):
                     _min_interval = 5.0 if is_ultraspeed_model(target_upstream_model) else 2.0
                     await _acct.wait_throttle(min_interval=_min_interval)
+                if attempt > 0 and _budget.expired():
+                    raise RuntimeError("Retry scheduling budget exhausted")
                 _client = get_shared_client()
                 async with _client.stream("POST", upstream_url, headers=headers, cookies=cookies, json=upstream_payload) as resp:
                         if resp.status_code != 200:
@@ -4259,9 +4580,9 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 print(f"[mimoly] Upstream HTTP {resp.status_code} ({_err_class}), retrying attempt {attempt+1}/{_max_attempts}...")
                                 _bump_retry()
                                 if (should_rotate_key(_err_class) or _err_class == ERROR_AUTH) and can_rotate_account():
-                                    release_account(_acct, success=False, error_class=_err_class)
+                                    lifecycle.release(_acct, success=False, error_class=_err_class)
                                     try:
-                                        cookies, _acct = acquire_account()
+                                        cookies, _acct = lifecycle.acquire()
                                         ph_param = cookies.get("xiaomichatbot_ph", "")
                                         upstream_url, _ = get_upstream_endpoints(target_upstream_model, ph_param)
                                         # Mirror the streaming path: lock the rotated-in
@@ -4270,12 +4591,12 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                         # block releases the previous account's lock.
                                         if _acct_lock and _acct_lock.locked():
                                             try:
-                                                _acct_lock.release()
+                                                lifecycle.release_lock(_acct_lock)
                                             except RuntimeError:
                                                 pass
                                         _acct_lock = _acct.get_lock() if (_acct and hasattr(_acct, "get_lock")) else None
                                         if _acct_lock:
-                                            await _acct_lock.acquire()
+                                            await lifecycle.acquire_lock(_acct_lock)
                                     except Exception:
                                         pass
                                 await _budget.sleep(attempt, error_class=_err_class)
@@ -4291,7 +4612,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             _finish_request(_req_rec, output=f"[error] upstream HTTP {resp.status_code}",
                                             finish_reason="error",
                                             latency_ms=(time.time() - _req_start) * 1000.0)
-                            release_account(_acct, success=False, error_class=_err_class)
+                            lifecycle.release(_acct, success=False, error_class=_err_class)
                             return JSONResponse(
                                 {"error": f"Upstream HTTP {resp.status_code} ({err_detail})"},
                                 status_code=resp.status_code
@@ -4299,13 +4620,17 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
 
                         last_event = None
                         async for line in resp.aiter_lines():
+                            lifecycle.mark("upstream_first_frame_ms")
+                            if not line:
+                                last_event = None
+                                continue
                             if line.startswith("event:"):
                                 last_event = line[6:].strip()
                                 continue
                             if not line.startswith("data:"):
                                 continue
                             data_str = line[5:].strip()
-                            if "[DONE]" in data_str:
+                            if data_str == "[DONE]":
                                 break
                             try:
                                 parsed = json.loads(data_str)
@@ -4317,6 +4642,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             parsed = normalize_upstream_frame(parsed)
                             if parsed is None:
                                 continue
+                            _check_upstream_error_frame(parsed, last_event)
                             if parsed.get("content") == "[DONE]":
                                 break
 
@@ -4349,7 +4675,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                                 continue
 
                             content_piece = parsed.get("content", "")
-                            if last_event == "dialogId" or (parsed.get("type") is None and str(content_piece).isdigit()) or (str(content_piece).isdigit() and len(str(content_piece)) >= 5):
+                            if last_event == "dialogId":
                                 continue
                             if content_piece:
                                 accumulated_chunks.append(content_piece.replace("\x00", ""))
@@ -4359,7 +4685,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                 _probe_ns_calls = []
                 if tools:
                     _probe_ns_calls, _ = smart_extract_tool_calls(_full_chunks_txt, user_prompt, tools)
-                if not _probe_ns_calls and is_upstream_busy(_full_chunks_txt) and attempt < _busy_max_ns:
+                if not _probe_ns_calls and is_upstream_busy(_full_chunks_txt) and _budget.should_retry(attempt) and attempt + 1 < _busy_max_ns:
                     print(f"[mimoly] Upstream server busy, retrying attempt {attempt+1}/{_busy_max_ns}...")
                     accumulated_chunks.clear()
                     _bump_retry()
@@ -4367,8 +4693,10 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                     upstream_payload["conversationId"] = new_cid
                     upstream_payload["msgId"] = uuid.uuid4().hex
                     _busy_sleep_ns = 6.0 * (attempt + 1) if is_ultraspeed_model(target_upstream_model) else 2.5 * (attempt + 1)
-                    await asyncio.sleep(_busy_sleep_ns)
+                    await lifecycle.sleep(_busy_sleep_ns)
                     continue
+                if not _probe_ns_calls and is_upstream_busy(_full_chunks_txt):
+                    raise RuntimeError("Upstream busy; retry scheduling budget exhausted")
 
                 # Strict Action Interceptor: catch reasoning stalls & prose evasions
                 if tools:
@@ -4382,7 +4710,7 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             tool_calls=[],
                             framework=agent_framework,
                         )
-                        if verdict in (Verdict.NUDGE_REASONING, Verdict.NUDGE_PROSE) and _empty_retries < 2:
+                        if verdict in (Verdict.NUDGE_REASONING, Verdict.NUDGE_PROSE) and _empty_retries < 2 and _budget.should_retry(attempt):
                             _empty_retries += 1
                             tool_names = [
                                 (t.get("function", {}).get("name") if isinstance(t.get("function"), dict) else t.get("name"))
@@ -4395,19 +4723,21 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
                             _bump_retry()
                             upstream_payload["query"] = base_upstream_query + "\n\n" + directive
                             upstream_payload["msgId"] = uuid.uuid4().hex
-                            await asyncio.sleep(3.0 * _empty_retries)
+                            await lifecycle.sleep(3.0 * _empty_retries)
                             continue
                 break
+            except _UpstreamFrameError:
+                raise
             except Exception as conn_err:
                 _conn_class = classify_exception(conn_err)
-                if not _budget.should_retry(attempt):
+                if not is_retryable(_conn_class) or not _budget.should_retry(attempt):
                     raise conn_err
                 print(f"[mimoly] Upstream non-stream retry {attempt+1}/{_max_attempts} due to: {conn_err}")
                 _bump_retry()
                 await _budget.sleep(attempt)
 
         # Reached here with a complete answer: the account served us fine.
-        release_account(_acct, success=True)
+        lifecycle.release(_acct, success=True)
 
     except Exception as e:
         _STATS["errors"] += 1
@@ -4415,12 +4745,14 @@ async def _handle_chat_completion_inner(body: dict, request: Request):
         _record_finish_reason("error")
         _finish_request(_req_rec, output=f"[error] upstream: {e}", finish_reason="error",
                         latency_ms=(time.time() - _req_start) * 1000.0)
-        release_account(_acct, success=False, error_class=classify_exception(e))
+        lifecycle.release(_acct, success=False, error_class=e.error_class if isinstance(e, _UpstreamFrameError) else classify_exception(e))
+        if isinstance(e, _UpstreamFrameError):
+            return JSONResponse(e.payload(), status_code=e.status_code)
         return JSONResponse({"error": f"Failed to connect to upstream: {e}"}, status_code=502)
     finally:
         if _acct_lock and hasattr(_acct_lock, "locked") and _acct_lock.locked():
             try:
-                _acct_lock.release()
+                lifecycle.release_lock(_acct_lock)
             except RuntimeError:
                 pass
 

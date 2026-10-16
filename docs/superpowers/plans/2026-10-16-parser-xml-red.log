@@ -1,0 +1,289 @@
+test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) ... 
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}</function>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<function=read_file>{"path":"xml.py"}</function>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<function=read_file>{"path":"xml.py"}') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<function=read_file>{"path":"xml.py"}</function>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<function=read_file>{"path":"xml.py"}') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<tool_call><function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}</function>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<tool_call><function=unknown>oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>') ... FAIL
+  test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<tool_call><function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}') ... FAIL
+test_malformed_xml_alone_is_not_an_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_alone_is_not_an_invocation) ... ok
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}</function>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=unknown>oops', valid='```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<function=read_file>{"path":"xml.py"}</function>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<function=read_file>{"path":"xml.py"}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<invoke name="unknown">oops', valid='```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<function=read_file>{"path":"xml.py"}</function>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 186, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(clean, invalid)
+AssertionError: '' != '<function=read_file>oops'
++ <function=read_file>oops
+
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 186, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(clean, invalid)
+AssertionError: '' != '<function=read_file>oops'
++ <function=read_file>oops
+
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<function=read_file>{"path":"xml.py"}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 186, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(clean, invalid)
+AssertionError: '' != '<function=read_file>oops'
++ <function=read_file>oops
+
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='<tool_call>{"name":"read_file","arguments":{"path":"xml.py"}}</tool_call>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<function=read_file>oops', valid='```json\n{"name":"read_file","arguments":{"path":"xml.py"}}\n```')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<tool_call><function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}</function>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<tool_call><function=unknown>oops', valid='<invoke name="read_file">{"path":"xml.py"}</invoke>')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+======================================================================
+FAIL: test_malformed_xml_does_not_swallow_next_invocation (test_agent_responsiveness.ProtocolTests.test_malformed_xml_does_not_swallow_next_invocation) (invalid='<tool_call><function=unknown>oops', valid='<function=read_file>{"path":"xml.py"}')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 185, in test_malformed_xml_does_not_swallow_next_invocation
+    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}])
+AssertionError: Lists differ: [] != [{'name': 'read_file', 'arguments': {'path': 'xml.py'}}]
+
+Second list contains 1 additional elements.
+First extra element 0:
+{'name': 'read_file', 'arguments': {'path': 'xml.py'}}
+
+- []
++ [{'arguments': {'path': 'xml.py'}, 'name': 'read_file'}]
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.019s
+
+FAILED (failures=18)
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]
+[mimoly] schema mismatch for 'read_file': ["missing required field 'path'"]

@@ -10,6 +10,9 @@ Covers the techniques harvested from the GitHub survey:
 
 Run:  .venv/Scripts/python.exe test_reliability.py
 """
+from offline_test_support import install_network_deny
+install_network_deny()
+
 import importlib.util
 import json
 import sys

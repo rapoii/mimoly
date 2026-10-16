@@ -13,6 +13,9 @@ Covers:
  10. Robustness against malformed or multimodal messages
 """
 
+from offline_test_support import install_network_deny
+install_network_deny()
+
 import os
 import sys
 import time
