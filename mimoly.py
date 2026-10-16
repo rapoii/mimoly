@@ -2377,8 +2377,12 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
     # A standalone protocol fence is an invocation; a fence introduced as an
     # example/documentation is not. Keep surrounding prose available as output.
     def strip_example(match):
-        prefix = reply_text[max(0, match.start() - 180):match.start()]
-        if re.search(r"\b(?:example|contoh|sample|syntax|usage)\b|e\.g\.", prefix, re.I):
+        prefix = reply_text[max(0, match.start() - 180):match.start()].rstrip()
+        if re.search(
+            r"(?:\b(?:for\s+example|(?:here\s+is\s+)?(?:an?\s+)?example(?:\s+(?:usage|invocation|call))?|"
+            r"sample\s+(?:invocation|call|usage)|syntax|usage|contoh)|e\.g\.)\s*:\s*$",
+            prefix, re.I,
+        ):
             return ""
         return match.group(0)
     executable = re.sub(r"```[^\n]*\n[\s\S]*?```", strip_example, reply_text)
@@ -2414,34 +2418,44 @@ def smart_extract_tool_calls(reply_text: str, user_prompt: str, available_tools:
                 result.append({"name": name, "arguments": args})
         return result
 
-    # Decode complete JSON values, not regex-matched nested braces. XML still
-    # uses the compatible legacy recovery path (including markdown healing).
-    candidates = re.findall(r"<tool_call>([\s\S]*?)(?:</tool_call>|$)", executable)
+    # Non-overlapping protocol spans are decoded independently in source order.
+    # Outer tool_call/fence wrappers own their nested XML/JSON, so a call is not
+    # extracted twice. An invalid span cannot hide a later valid protocol.
+    spans = list(re.finditer(
+        r"<tool_call>\s*```[^\n]*\n[\s\S]*?```\s*</tool_call>"
+        r"|<tool_call>(?:(?!<tool_call>|```)[\s\S])*?(?:</tool_call>|(?=<tool_call>|```)|$)"
+        r"|```[^\n]*\n[\s\S]*?```"
+        r"|<(?:function|invoke)(?:=|\s+name=)[^>]*>[\s\S]*?(?:</(?:function|invoke)>|$)",
+        executable,
+    ))
+    candidates = [(span.start(), span.end(), span.group(0)) for span in spans]
     if not candidates:
-        candidates = re.findall(r"```(?:json)?\s*([\s\S]*?)```", executable)
-    if not candidates:
-        candidates = [executable.strip()]
-    json_calls = []
-    clean = executable
-    for candidate in candidates:
-        payload = re.sub(r"^```(?:json)?\s*|\s*```$", "", candidate.strip())
+        candidates = [(0, len(executable), executable)]
+    result = []
+    removed = []
+    for start, end, candidate in candidates:
+        payload = re.sub(r"^<tool_call>|</tool_call>$", "", candidate.strip()).strip()
+        payload = re.sub(r"^```(?:json)?\s*|\s*```$", "", payload)
         try:
             obj = json.loads(payload)
         except (ValueError, TypeError):
-            continue
-        calls = unpack(obj)
-        if calls:
-            _finalize_tool_calls(calls, executable, user_prompt, available_tools, list(index))
-            accepted = validated(calls)
-            if accepted:
-                json_calls.extend(accepted)
-                clean = clean.replace(candidate, "", 1)
-    if json_calls:
-        clean = re.sub(r"</?tool_call>|```(?:json)?", "", clean).strip()
-        return json_calls, clean
-    calls, clean = _extract_legacy_tool_calls(executable, user_prompt, available_tools)
-    result = validated(calls)
-    return (result, clean) if result else ([], original)
+            # Preserve tolerant XML, repaired JSON and markdown recovery.
+            calls, _ = _extract_legacy_tool_calls(candidate, user_prompt, available_tools)
+        else:
+            calls = unpack(obj)
+        # Healing may need sibling markdown (write_file content / Python code),
+        # even though extraction itself is scoped to one protocol span.
+        _finalize_tool_calls(calls, executable, user_prompt, available_tools, list(index))
+        accepted = validated(calls)
+        if accepted:
+            result.extend(accepted)
+            removed.append((start, end))
+    if result:
+        clean = executable
+        for start, end in reversed(removed):
+            clean = clean[:start] + clean[end:]
+        return result, clean.replace("</think>", "").strip()
+    return [], original
 
 
 def _extract_legacy_tool_calls(reply_text: str, user_prompt: str, available_tools: Optional[Any] = None):

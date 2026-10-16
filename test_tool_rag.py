@@ -1,3 +1,6 @@
+from offline_test_support import install_network_deny
+install_network_deny()
+
 import math
 import os
 import sys

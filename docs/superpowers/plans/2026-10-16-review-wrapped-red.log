@@ -1,0 +1,16 @@
+test_wrapped_json_fence_is_one_call (test_agent_responsiveness.ProtocolTests.test_wrapped_json_fence_is_one_call) ... FAIL
+
+======================================================================
+FAIL: test_wrapped_json_fence_is_one_call (test_agent_responsiveness.ProtocolTests.test_wrapped_json_fence_is_one_call)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Software\Hermes Workspace\projects\mimoly\test_agent_responsiveness.py", line 155, in test_wrapped_json_fence_is_one_call
+    self.assertEqual(clean, '')
+AssertionError: '<tool_call></tool_call>' != ''
+- <tool_call></tool_call>
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.002s
+
+FAILED (failures=1)

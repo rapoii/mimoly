@@ -1,0 +1,17 @@
+  PASS  test_action_required_when_previous_turn_is_tool
+  PASS  test_conversational_pass_through
+  PASS  test_conceptual_query_pass_through
+  PASS  test_mandatory_triggers_indonesian_verbs
+  PASS  test_mandatory_triggers_english_verbs
+  PASS  test_reasoning_only_stall
+  PASS  test_prose_evasion_promissory_phrases
+  PASS  test_legitimate_final_completion
+  PASS  test_tool_calls_present_always_pass
+  PASS  test_tools_not_present_always_pass
+  PASS  test_framework_specific_steering_directives
+  PASS  test_steering_directive_caps_large_tool_set
+  PASS  test_class_and_instance_invocation
+  PASS  test_concurrency_thread_safety
+  PASS  test_robustness_malformed_messages
+
+RESULT: 15 passed, 0 failed

@@ -9,6 +9,9 @@ from unittest.mock import patch
 
 import httpx
 from starlette.requests import Request
+from offline_test_support import install_network_deny
+install_network_deny()
+
 import mimoly as m
 import mimoly_rag as rag
 from mimoly_interceptor import ActionEvaluator, Verdict
@@ -101,6 +104,64 @@ class ProtocolTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(m.smart_extract_tool_calls(text, 'Explain tool syntax', TOOLS)[0], [])
 
+    def test_action_prose_is_not_an_example_introduction(self):
+        invocation = '```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```'
+        for prose in ('I will inspect the syntax error now.',
+                      'I will inspect the sample file now.',
+                      'The usage count changed. I will inspect a.py now.'):
+            with self.subTest(prose=prose):
+                calls, _ = m.smart_extract_tool_calls(prose + '\n' + invocation, 'Read a.py', TOOLS)
+                self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+
+    def test_clear_example_introductions_stay_non_executable(self):
+        invocation = '```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```'
+        for prose in ('For example:', 'Example usage:', 'Here is an example:',
+                      'Sample invocation:', 'Syntax:', 'Usage:', 'Contoh:', 'e.g.:'):
+            with self.subTest(prose=prose):
+                self.assertEqual(m.smart_extract_tool_calls(prose + '\n' + invocation, '', TOOLS)[0], [])
+
+    def test_mixed_protocol_blocks_keep_source_order_without_duplicates(self):
+        json_call = '<tool_call>{"name":"read_file","arguments":{"path":"json.py"}}</tool_call>'
+        xml_call = '<tool_call><function=read_file>{"path":"xml.py"}</function></tool_call>'
+        for first, second, paths in ((json_call, xml_call, ['json.py', 'xml.py']),
+                                     (xml_call, json_call, ['xml.py', 'json.py']),
+                                     ('```json\n{"name":"read_file","arguments":{"path":"json.py"}}\n```', xml_call, ['json.py', 'xml.py']),
+                                     (xml_call, '```json\n{"name":"read_file","arguments":{"path":"json.py"}}\n```', ['xml.py', 'json.py'])):
+            with self.subTest(paths=paths, first=first):
+                calls, clean = m.smart_extract_tool_calls(first + '\n' + second, '', TOOLS)
+                self.assertEqual([c['arguments']['path'] for c in calls], paths)
+                self.assertEqual(clean, '')
+
+    def test_invalid_blocks_do_not_hide_later_valid_calls(self):
+        valid_json = '```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```'
+        valid_xml = '<tool_call><function=read_file>{"path":"a.py"}</function></tool_call>'
+        invalids = ('<tool_call>{"name":"unknown","arguments":{}}</tool_call>',
+                    '<tool_call><function=unknown>{}</function></tool_call>',
+                    '```json\n{"name":"unknown","arguments":{}}\n```',
+                    '```json\nnot JSON\n```',
+                    '<tool_call>{"name":"read_file","arguments":42}</tool_call>',
+                    '<tool_call>not JSON',
+                    '<tool_call><function=unknown>{}</function>')
+        for invalid in invalids:
+            for valid in (valid_json, valid_xml):
+                with self.subTest(invalid=invalid, valid=valid):
+                    calls, _ = m.smart_extract_tool_calls(invalid + '\n' + valid, '', TOOLS)
+                    self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+
+    def test_wrapped_json_fence_is_one_call(self):
+        text = '<tool_call>```json\n{"name":"read_file","arguments":{"path":"a.py"}}\n```</tool_call>'
+        calls, clean = m.smart_extract_tool_calls(text, '', TOOLS)
+        self.assertEqual(calls, [{'name': 'read_file', 'arguments': {'path': 'a.py'}}])
+        self.assertEqual(clean, '')
+
+    def test_network_deny_is_fail_closed(self):
+        from offline_test_support import ATTEMPTS, NetworkForbidden
+        import socket
+        before = len(ATTEMPTS)
+        with self.assertRaises(NetworkForbidden):
+            socket.create_connection(('offline.invalid', 443))
+        self.assertEqual(len(ATTEMPTS), before + 1)
+
     def test_conservative_interceptor(self):
         fixtures = [('Write a poem about rain', 'Rain falls.'), ('Hitung 2 + 2', '4'), ('Read the text below; do not use tools', 'I will read it now.'), ('Create an implementation plan only; do not execute', 'I will create a plan.'), ('Create a file', 'Created the file successfully.')]
         for goal, reply in fixtures:
@@ -130,6 +191,8 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.account = PooledAccount('offline', {})
+        self.upstream = self.stack.enter_context(patch.object(
+            m, 'get_shared_client', side_effect=AssertionError('Unmocked upstream client')))
         self.releases = []
         self.stack.enter_context(patch.object(m, 'acquire_account', return_value=({}, self.account)))
         self.stack.enter_context(patch.object(m, 'release_account', side_effect=lambda acct, success, error_class=None: self.releases.append((acct, success))))
@@ -226,11 +289,16 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.releases), 1)
 
     async def test_deadline_includes_preprocessing(self):
+        self.stack.enter_context(patch.object(m, 'acquire_account', return_value=(
+            {'xiaomichatbot_ph': 'offline-dummy'}, self.account)))
         async def preprocessing(*args, **kwargs):
             await asyncio.sleep(0.2)
-        self.stack.enter_context(patch.object(m, 'prepare_multimedias_for_request', preprocessing))
+        preprocess = self.stack.enter_context(patch.object(
+            m, 'prepare_multimedias_for_request', side_effect=preprocessing))
         self.stack.enter_context(patch.object(m, '_request_budget_seconds', return_value=0.03, create=True))
         response = await asyncio.wait_for(m.handle_chat_completion(self.body, request()), timeout=0.15)
+        preprocess.assert_awaited_once()
+        self.upstream.assert_not_called()
         self.assertEqual(response.status_code, 504)
         self.assertEqual(len(self.releases), 1)
 

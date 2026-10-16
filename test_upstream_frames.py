@@ -10,6 +10,9 @@ and fall back to text-only answers.
 
 Run:  .venv/Scripts/python.exe test_upstream_frames.py
 """
+from offline_test_support import install_network_deny
+install_network_deny()
+
 import importlib.util
 import json
 import os

@@ -2,7 +2,7 @@
 
 ## Outcome and boundaries
 
-Implemented offline lifecycle/protocol hardening on `fix/agent-responsiveness-20261016`, based on `d094a17`. No upstream HTTP calls, service restart, dependency installation, global configuration changes, push or merge. Session/.env contents were not read or output. No live latency or upstream inference speed was measured; no latency SLA is claimed. Task 2 independent review/live verification remains parent-owned.
+Implemented lifecycle/protocol hardening on `fix/agent-responsiveness-20261016`, based on `d094a17`. **Correction after independent review:** the original preprocessing GREEN was insufficient: its empty-cookie fixture skipped preprocessing and could attempt an upstream client. Prior runs were intended to be offline but were not guaranteed offline; the earlier categorical no-upstream claim is withdrawn. No service restart, dependency installation, global configuration changes, push or merge. No live latency or upstream inference speed was measured; no latency SLA is claimed. The review-fix execution below denies external network and replaces session acquisition with dummy fixtures; no credential contents were inspected during this fix. Task 2 independent re-review/live verification remains parent-owned.
 
 ## Baseline (before production edits)
 
@@ -85,3 +85,33 @@ New regression run: `Ran 22 tests in 0.552s`, `OK`, exit 0; full output in `2026
 - Implementation/tests: `282143f` — `fix: bound agent lifecycle and validate protocol retries`.
 - Report, captured RED/GREEN logs, and Task 1 checkbox completion: subsequent scoped `docs: record responsiveness verification evidence` commit (resolve with `git log -1 --format=%H -- docs/superpowers/plans/2026-10-16-agent-responsiveness-report.md`; its own hash cannot be embedded without changing it).
 - No push/merge. Task 2 remains unchecked and parent-owned.
+
+## Independent-review corrections (2026-10-16)
+
+All three findings fixed in one scoped follow-up commit. No agents spawned, no live requests or server restart. No installs, credential inspection, push or merge.
+
+### Real RED, then GREEN
+
+Before production fixes, installed `offline_test_support.install_network_deny()` before production imports in all six runners. It denies DNS, outbound socket connect/connect_ex/create_connection, and synchronous/asynchronous HTTPX network transports. It raises `BaseException` so production `except Exception` cannot swallow an accidental network attempt. ASGITransport remains available. Windows asyncio requires the stdlib local socketpair/self-pipe; only the synchronous stdlib socketpair construction is exempt, not arbitrary loopback connections. A regression explicitly proves denied connections raise before network use.
+
+- `timeout 60 .venv/Scripts/python.exe -m unittest -v test_agent_responsiveness`: RED exit 1, `Ran 27 tests in 0.451s`, `FAILED (failures=11)` (subtests counted). Output: `2026-10-16-review-fixes-red.log`. Actual failures include preprocessing awaited zero times, syntax-error/sample-file/usage prose suppressing valid calls, mixed JSON/XML losing one invocation, invalid blocks hiding later valid JSON.
+- P1 fixture fix: dummy `xiaomichatbot_ph` for preprocessing only; assert preprocessing awaited exactly once, default upstream-client mock never called, response 504, account released. All lifecycle fixtures default to a fail-fast unmocked-client guard. Existing E2E runner now supplies empty dummy session cookies and offline conversation creation instead of reading real session credentials; its client also defaults to fail-fast unless explicitly mocked.
+- P1 example-filter fix: only a clear immediately preceding example/usage/syntax introduction ending in a colon excludes a fence. Syntax-error, sample-file and usage-count prose preserve calls; eight explicit introductions remain excluded.
+- P2 mixed-protocol fix: extract non-overlapping protocol spans in original order, decode each independently, validate registry/schema, and remove only accepted spans. Outer wrappers own nested content to avoid duplicate extraction. Keep legacy XML/JSON repair and sibling-markdown argument healing (first runner pass caught loss of write_file/execute_code healing; fixed before final verification).
+- Additional targeted RED: unclosed invalid tool_call could hide later valid JSON, `2026-10-16-review-unclosed-red.log`, exit 1, `Ran 1 test`, one failure. Stop malformed wrapper spans at the next protocol boundary.
+- Additional targeted RED: wrapped JSON fence cleanup left a dangling closing tag, `2026-10-16-review-wrapped-red.log`, exit 1, `Ran 1 test`, one failure. Recognize the complete outer wrapper as one span.
+
+### Final verification
+
+Every command used existing `.venv/Scripts/python.exe`, individual `timeout 60`, no pytest installation. Final results:
+
+| Command arguments | Actual output | Exit |
+|---|---|---|
+| `-m unittest -v test_agent_responsiveness` | 28 tests, OK | 0 |
+| `test_upstream_frames.py` | all checks passed | 0 |
+| `test_action_interceptor.py` | 15 passed, 0 failed | 0 |
+| `test_tool_rag.py` | 17 passed, 0 failed | 0 |
+| `test_reliability.py` | all checks passed | 0 |
+| `test_rag_agent_e2e.py` | 10 passed, 0 failed | 0 |
+
+Final regression log: `2026-10-16-review-fixes-green.log`; existing-runner logs: `2026-10-16-review-test_<runner>.log`. Tool-return elapsed measurements for the batch were 1.674s, 2.782s, 3.466s, 4.181s, 5.078s, 6.591s respectively (includes tool scheduling overhead; not application latency). Compile and whitespace checks were run before commit. No current test proves live latency or upstream behavior. Lexical example recognition remains deliberately bounded, not full intent understanding. Fresh independent re-review remains parent-owned (user prohibited spawning agents here).
