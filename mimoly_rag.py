@@ -7,6 +7,7 @@ Provides:
 """
 
 import functools
+import hashlib
 import json
 import math
 import re
@@ -190,10 +191,8 @@ _MAX_CACHE_SIZE = 32
 
 def _get_or_build_index(candidate_tools: List[Dict[str, Any]]) -> BM25Index:
     """Retrieve cached immutable BM25Index or construct a new one thread-safely."""
-    fp = tuple(
-        (_extract_tool_name(t), len(_extract_tool_desc(t)))
-        for t in candidate_tools
-    )
+    fp = hashlib.sha256(json.dumps(candidate_tools, sort_keys=True,
+                                   ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
     with _CACHE_LOCK:
         cached = _INDEX_CACHE.get(fp)
         if cached is not None:

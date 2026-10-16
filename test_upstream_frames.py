@@ -156,8 +156,7 @@ def main():
             "function": {"name": "tool_search", "description": "Search tools",
                          "parameters": {"type": "object", "properties": {"queries": {"type": "string"}}}},
         }], framework="default")
-        check("no unescaped `{\"` in prompt", '{"' not in prompt,
-              f"found at {prompt.find(chr(123)+chr(34))}")
+        check("raw JSON observation preserved", msgs[-1]["content"] in prompt)
         check("observation still present", "mcp__playwright__browser_click" in prompt)
     except Exception as e:  # noqa: BLE001
         check("build_agent_prompt handled tool JSON", False, f"raised {e!r}")
@@ -675,7 +674,9 @@ def main():
 
     # Test 7: Strip markdown code fence inside <tool_call>
     md_tc_reply = "<tool_call>\n```json\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"main.py\"}}\n```\n</tool_call>"
-    calls_md, _ = m.smart_extract_tool_calls(md_tc_reply, "", mock_tools)
+    # read_file must be in the declared registry; unknown names are rejected.
+    read_tools = mock_tools + [{"function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}}]
+    calls_md, _ = m.smart_extract_tool_calls(md_tc_reply, "", read_tools)
     check("markdown json inside tool_call stripped and parsed", len(calls_md) == 1 and calls_md[0]["name"] == "read_file" and calls_md[0]["arguments"].get("path") == "main.py", f"got {calls_md}")
 
     # Test 8: execute_code empty args recovers code from python block (A12)
@@ -1132,7 +1133,7 @@ def main():
         src = f.read()
 
     check("tool_names[:20] passed in streaming loop", "ActionEvaluator.get_steering_directive(agent_framework, tool_names[:20])" in src)
-    check("_stream_started reset on auto-nudge retry", "_stream_started = False\n                                        in_thinking = False" in src)
+    check("emission guard blocks retry after visible output", "and not lifecycle.output_started" in src and "or lifecycle.output_started" in src)
     check("base_upstream_query preserved in sse_generator", "base_upstream_query = upstream_payload[\"query\"]" in src)
     check("base_upstream_query updated on compact retry", "base_upstream_query = _compact" in src)
     check("no stacked duplicate directives on retry", "upstream_payload[\"query\"] = base_upstream_query + \"\\n\\n\" + directive" in src)

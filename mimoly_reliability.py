@@ -117,7 +117,7 @@ class RetryBudget:
 
     def next_delay(self, attempt: int, error_class: Optional[str] = None) -> float:
         """Full-jitter backoff: uniform(floor, min(base * 2**attempt, max_delay))."""
-        if self.expired():
+        if not self.should_retry(attempt):
             return 0.0
         ceiling = min(self.base_delay * (2 ** max(0, attempt)), self.max_delay)
         floor = self.min_delay
@@ -127,7 +127,8 @@ class RetryBudget:
             ceiling = max(ceiling, floor + 1.5)
         if ceiling <= 0.0:
             return 0.0
-        return self._rng.uniform(floor, max(floor, ceiling))
+        return min(self._rng.uniform(floor, max(floor, ceiling)),
+                   max(0.0, self.deadline - self.elapsed()))
 
     async def sleep(self, attempt: int, error_class: Optional[str] = None) -> None:
         d = self.next_delay(attempt, error_class=error_class)

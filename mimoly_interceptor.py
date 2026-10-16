@@ -122,7 +122,7 @@ _PROMISSORY_EVASIONS = re.compile(
     r'let me write|let me test|let me edit|let me patch|let me inspect|next i need to|'
     r'next i will|next step is to|i am going to|i\'m going to|now i will|i will proceed|'
     r'i will create|i will write|i will execute|i will read|i will run|i will modify|'
-    r'i will inspect|i will test|i will check|we will now|let\'s run|let\'s check|'
+    r'i will inspect|i will test|i will check|i can assist|we will now|let\'s run|let\'s check|'
     r'let\'s execute|let\'s inspect)\b',
     re.IGNORECASE
 )
@@ -233,6 +233,10 @@ class ActionEvaluator:
                 # Prompt starts with conceptual indicator and lacks imperative action commands
                 is_conceptual = True
 
+        # Explicit text-only and planning requests override inferred workflow intent.
+        if re.search(r"do not (?:use tools|execute)|no tools|without tools|plan only|plan.*only|tanpa tool|jangan (?:gunakan tool|eksekusi)", user_text, re.I):
+            return Verdict.PASS
+
         # Case A: In-flight tool workflow (immediate previous turn was tool execution)
         if immediate_previous_turn_is_tool:
             # If reply has no text outside <think>, model stalled in reasoning
@@ -256,8 +260,11 @@ class ActionEvaluator:
             if not cleaned_reply:
                 return Verdict.NUDGE_REASONING
 
-            # Model produced prose fluff/evasion instead of taking action
-            return Verdict.NUDGE_PROSE
+            # A verb alone does not prove tools are necessary (poetry/math).
+            # Only intercept an explicit promise to act, not a substantive answer.
+            if _PROMISSORY_EVASIONS.search(cleaned_reply):
+                return Verdict.NUDGE_PROSE
+            return Verdict.PASS
 
         # Case D: Non-action conversational turns (greetings, pleasantries, questions) -> PASS
         return Verdict.PASS
