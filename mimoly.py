@@ -196,6 +196,27 @@ def normalize_upstream_frame(parsed: Any) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _clean_native_tool_args(fn_args):
+    """Strip the XiaomiMiMo/MiMo#103 trailing '{}' suffix from native toolCalls arguments.
+
+    The upstream react/chat cluster appends a phantom empty object after the
+    real JSON arguments string. Remove it (repeatedly) only while the
+    remainder still parses as JSON, so a genuinely absent 'arguments'
+    (the '{}' default) is never mangled into ''.
+    """
+    if not isinstance(fn_args, str):
+        return fn_args
+    cleaned = fn_args.rstrip()
+    while cleaned.endswith("{}"):
+        candidate = cleaned[:-2].rstrip()
+        try:
+            json.loads(candidate)
+        except Exception:
+            break
+        cleaned = candidate
+    return cleaned
+
+
 UPSTREAM_BUSY_PHRASES = (
     "服务器繁忙",
     "系统繁忙",
@@ -4124,7 +4145,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                             if "toolCalls" in parsed and isinstance(parsed["toolCalls"], list):
                                                 for tc in parsed["toolCalls"]:
                                                     fn_name = tc.get("name", "")
-                                                    fn_args = tc.get("arguments", "{}")
+                                                    fn_args = _clean_native_tool_args(tc.get("arguments", "{}"))
                                                     if fn_name:
                                                         accumulated_chunks.append(f"\n<tool_call>\n<function={fn_name}>\n{fn_args}\n</tool_call>\n")
                                                 continue
@@ -4316,6 +4337,15 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                                         continue
                             break
                         except _UpstreamFrameError:
+                            # A fully-buffered valid tool call survives a
+                            # trailing error frame (busy cluster after tool
+                            # emission): probe before discarding the attempt.
+                            if tools:
+                                _kept, _ = smart_extract_tool_calls(
+                                    "".join(accumulated_chunks), user_prompt, tools)
+                                if _kept:
+                                    print("[mimoly] Upstream error after valid tool call; emitting buffered calls")
+                                    break
                             raise
                         except Exception as conn_err:
                             _conn_class = classify_exception(conn_err)
@@ -4663,7 +4693,7 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                             if "toolCalls" in parsed and isinstance(parsed["toolCalls"], list):
                                 for tc in parsed["toolCalls"]:
                                     fn_name = tc.get("name", "")
-                                    fn_args = tc.get("arguments", "{}")
+                                    fn_args = _clean_native_tool_args(tc.get("arguments", "{}"))
                                     if fn_name:
                                         accumulated_chunks.append(f"\n<tool_call>\n<function={fn_name}>\n{fn_args}\n</tool_call>\n")
                                 continue
@@ -4727,6 +4757,15 @@ async def _run_chat_completion(body: dict, request: Request, lifecycle):
                             continue
                 break
             except _UpstreamFrameError:
+                # A fully-buffered valid tool call survives a trailing error
+                # frame (busy cluster after tool emission): probe before
+                # discarding the attempt.
+                if tools:
+                    _kept, _ = smart_extract_tool_calls(
+                        "".join(accumulated_chunks), user_prompt, tools)
+                    if _kept:
+                        print("[mimoly] Upstream error after valid tool call; emitting buffered calls")
+                        break
                 raise
             except Exception as conn_err:
                 _conn_class = classify_exception(conn_err)
