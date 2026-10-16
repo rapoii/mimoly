@@ -243,6 +243,68 @@ def is_upstream_busy(text: str) -> bool:
     return any(p in text for p in UPSTREAM_BUSY_PHRASES)
 
 
+_BUILD_VERB_RE = re.compile(
+    r'\b(?:bikin|bikinin|bikinkan|dibikin|dibikinin|buat|buatlah|buatkan|buatin|'
+    r'dibuat|dibuatkan|membuat|bangun|membangun|dibangun|cipta|ciptakan|'
+    r'diciptakan|menciptakan|kembang|kembangkan|mengembangkan|rancang|merancang|'
+    r'dirancang|tulis|tuliskan|ditulis|menulis|build|create|make|develop|'
+    r'generate|write)\b',
+    re.IGNORECASE,
+)
+
+_CONCRETE_BUILD_SIGNAL_RES = (
+    re.compile(r'```|`[^`\n]+`'),  # fenced or inline code block
+    re.compile(r'https?://|www\.', re.IGNORECASE),  # URL
+    re.compile(  # filename with a code/doc/media extension
+        r'\b[\w][\w\-+]*\.(?:py|pyi|js|jsx|ts|tsx|mjs|cjs|go|rs|java|kt|kts|'
+        r'rb|php|swift|m|c|cpp|h|hpp|cs|html|css|scss|json|ya?ml|toml|ini|cfg|'
+        r'md|rst|txt|csv|tsv|sql|sqlite|db|sh|bash|ps1|bat|exe|apk|ipa|pdf|'
+        r'docx?|xlsx?|pptx?|png|jpe?g|gif|svg|mp3|mp4)\b',
+        re.IGNORECASE,
+    ),
+    re.compile(r'(?:^|[\s(\[{\"\'‘“])\.{0,2}/[^\s<>\"\'`]+'),  # /path or ./relative
+    re.compile(r'[A-Za-z]:[\\/][^\s<>\"\'`]*'),  # Windows C:\... / C:/...
+    re.compile(r'~/[^\s<>\"\'`]*'),  # ~/home-relative path
+    re.compile(r'\b[a-zA-Z_]\w*\([^)\n]{0,80}\)'),  # function-call-like code
+)
+
+_VAGUE_BUILD_OBJECT_RE = re.compile(
+    r'\b(?:hp|handphone|ponsel|aplikasi|apps?|application|website|web|situs|'
+    r'sistem|program|software|tools?|bot|game)(?:nya|ku|mu|lah|kah|pun)?\b',
+    re.IGNORECASE,
+)
+
+_MULTI_COMPONENT_DASHBOARD_RE = re.compile(
+    r'\bdashboard(?:nya|ku|mu|lah|kah|pun)?\b', re.IGNORECASE
+)
+_STORAGE_SIGNAL_RE = re.compile(
+    r'disimpen|disimpan|database|naik\s*[- ]?turun', re.IGNORECASE
+)
+
+
+def _ambiguous_build_request(text: str) -> bool:
+    """Return True for stall-prone ambiguous build prompts.
+
+    True when the text has a build verb (ID/EN) AND no concrete signal
+    (code block, filename with extension, URL, path) AND (a merely vague
+    object such as "hp"/"aplikasi", OR multi-component scope: "dashboard"
+    together with a storage/persistence cue like "disimpen"/"database"/
+    "naik turun").
+    """
+    if not text:
+        return False
+    if not _BUILD_VERB_RE.search(text):
+        return False
+    for rx in _CONCRETE_BUILD_SIGNAL_RES:
+        if rx.search(text):
+            return False
+    if _VAGUE_BUILD_OBJECT_RE.search(text):
+        return True
+    if _MULTI_COMPONENT_DASHBOARD_RE.search(text) and _STORAGE_SIGNAL_RE.search(text):
+        return True
+    return False
+
+
 # Xiaomi MiMo Studio performs its own web retrieval for any prompt that contains
 # a literal URL and hands the result to the model as pre-fetched context. The
 # model then reads "the page is already available" and answers from that payload

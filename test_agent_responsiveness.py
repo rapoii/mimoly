@@ -245,6 +245,16 @@ class ProtocolTests(unittest.TestCase):
         self.assertLessEqual(budget.next_delay(0, 'rate_limit'), 0.01)
         self.assertEqual(budget.next_delay(1), 0)
 
+    def test_ambiguous_build_request_heuristic(self):
+        self.assertTrue(m._ambiguous_build_request("bikinin hp"))
+        self.assertTrue(m._ambiguous_build_request(
+            "bang bikinin aku aplikasi buat mantau harga hp bekas iphone 13 dong. "
+            "yang ada dashboardnya bisa diliat di browser, datanya disimpen biar "
+            "bisa liat naik turunnya."))
+        self.assertFalse(m._ambiguous_build_request("Tolong buatkan saya puisi singkat tentang hujan."))
+        self.assertFalse(m._ambiguous_build_request("tulis kode python tambah(a, b)"))
+        self.assertFalse(m._ambiguous_build_request("Sebutkan 3 bahan utama rendang."))
+
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.stack = ExitStack()
